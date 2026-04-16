@@ -190,6 +190,13 @@ def factory_loop():
             cur_ana = dj.analyzer.analyze_track(cur['path'], cur['id'])
             nxt_ana = dj.analyzer.analyze_track(nxt['path'], nxt['id'])
             
+            # ✂️ PRECISE STEM SEPARATION
+            # Use outro point of A and intro point of B
+            outro_a = cur_ana.get('transition_points', {}).get('outro_beat', 0)
+            # Pull stems only around the transition window
+            dj.stem_separator.separate(cur['path'], cur['id'], start_time=max(0, outro_a - 45))
+            dj.stem_separator.separate(nxt['path'], nxt['id'], start_time=0) # Intro is usually at 0
+            
             technique, params = dj.transition_decider.decide(cur['id'], nxt['id'], cur_ana, nxt_ana)
             
             # 🚀 Mutation check

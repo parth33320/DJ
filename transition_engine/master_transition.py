@@ -19,6 +19,8 @@ class MasterTransitionEngine:
         self.cache_dir = config['paths']['audio_cache']
         self.is_playing = False
         self.playback_thread = None
+        self.test_mode = False
+        self.output_buffer = []
 
     # ============================================================
     # CORE ROUTING
@@ -59,9 +61,25 @@ class MasterTransitionEngine:
                     current_analysis, next_analysis)
         except Exception as e:
             print(f"   ❌ Transition error: {e}")
-            print(f"   ⚠️  Falling back to cut transition")
             self.cut_transition(current_id, next_id, {},
                                 current_analysis, next_analysis)
+
+    def generate_transition_mix(self, cur_id, nxt_id, technique, params, cur_ana, nxt_ana):
+        """Generates a mix file instead of playing live"""
+        self.test_mode = True
+        self.output_buffer = []
+        
+        self.execute(cur_id, nxt_id, technique, params, cur_ana, nxt_ana)
+        
+        if not self.output_buffer:
+            return None
+            
+        mix_data = np.concatenate(self.output_buffer)
+        out_path = os.path.join(self.config['paths']['sandbox'], 'test_mix.wav')
+        sf.write(out_path, mix_data, self.sr)
+        
+        self.test_mode = False
+        return out_path
 
     # ============================================================
     # AUDIO UTILITIES
@@ -89,7 +107,11 @@ class MasterTransitionEngine:
         return None, None
 
     def _play_audio(self, audio, sr=None):
-        """Play audio array through speakers"""
+        """Play audio or save to buffer if in test mode"""
+        if self.test_mode:
+            self.output_buffer.append(audio)
+            return
+            
         if sr is None:
             sr = self.sr
         if audio is None or len(audio) == 0:

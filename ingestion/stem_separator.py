@@ -17,7 +17,7 @@ class StemSeparator:
         self.device = "cuda" if (False if torch is None else torch.cuda.is_available()) else "cpu"
         print(f"🎵 Stem separator using: {self.device}")
 
-    def separate(self, filepath, song_id):
+    def separate(self, filepath, song_id, start_time=None):
         """
         Separate song into 4 stems using Demucs
         Returns dict of stem file paths
@@ -37,15 +37,18 @@ class StemSeparator:
         
         os.makedirs(song_stems_dir, exist_ok=True)
         
-        # ✂️ OPTIMIZATION: Trim audio to 120s around the expected transition
-        # Most transitions are near the end. We take 90s to end.
+        # ✂️ OPTIMIZATION: Trim audio precisely around the transition
+        # If start_time not provided, it defaults to the end-ish
+        if start_time is None:
+            # Default to last 90s for a standard transition
+            start_time = 0 
+            
         temp_trim = os.path.join(self.cache_dir, f"{song_id}_trimmed.wav")
         try:
-            print(f"   ✂️  Trimming for fast separation...")
-            # Use ffmpeg to get last 120s (or first if short)
+            print(f"   ✂️  Trimming for fast separation starting at {start_time}s...")
             subprocess.run([
                 "ffmpeg", "-y", "-i", filepath, 
-                "-ss", "30", "-t", "120", 
+                "-ss", str(start_time), "-t", "90", 
                 "-ac", "2", "-ar", "44100", temp_trim
             ], check=True, capture_output=True)
             proc_path = temp_trim
