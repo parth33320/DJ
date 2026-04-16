@@ -24,6 +24,7 @@ class PhraseDetector:
         
         # Get beat frames
         tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
+        tempo = float(np.atleast_1d(tempo)[0]) # Ensure scalar
         beat_times = librosa.frames_to_time(beats, sr=sr)
         
         # Group beats into bars (4 beats per bar)
@@ -62,7 +63,7 @@ class PhraseDetector:
         )
         
         result = {
-            'tempo': float(tempo),
+            'tempo': tempo,
             'total_bars': len(bars),
             'bar_times': [b['start_time'] for b in bars],
             'phrases': phrases,

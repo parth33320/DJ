@@ -1,4 +1,6 @@
 import random
+import os
+import json
 
 class TransitionAgent:
     """
@@ -7,8 +9,9 @@ class TransitionAgent:
     """
     def __init__(self, config):
         self.config = config
-
-        # Technique rules: (condition_func, technique, weight)
+        self.weights_path = 'data/logs/feedback_weights.json'
+        
+        # Technique rules: (technique, rule_func)
         self.technique_rules = [
             ('beatmatch_crossfade', self._rule_beatmatch),
             ('filter_sweep', self._rule_filter_sweep),
@@ -23,16 +26,32 @@ class TransitionAgent:
             ('tone_play', self._rule_tone_play),
         ]
 
-    def decide(self, current_analysis, next_analysis, compatibility):
+    def _load_feedback_weights(self):
+        """Load user feedback weights to influence decision"""
+        if os.path.exists(self.weights_path):
+            try:
+                with open(self.weights_path, 'r') as f:
+                    return json.load(f)
+            except:
+                pass
+        return {}
+
+    def decide(self, current_id, next_id, current_analysis, next_analysis):
         """
-        Decide best transition technique
-        Returns technique name string
+        Decide best transition technique incorporating user learning
         """
         scores = {}
+        feedback = self._load_feedback_weights()
 
         for technique, rule_func in self.technique_rules:
-            score = rule_func(current_analysis, next_analysis, compatibility)
-            scores[technique] = score
+            # Base score from musical theory
+            base_score = rule_func(current_analysis, next_analysis, {})
+            
+            # Apply learning weight (defaults to 1.0)
+            user_weight = feedback.get(technique, 1.0)
+            
+            # Final score (clamped)
+            scores[technique] = max(0.01, base_score * user_weight)
 
         # Sort by score
         sorted_techniques = sorted(
@@ -42,12 +61,12 @@ class TransitionAgent:
         # Pick from top 3 with weighted randomness
         top3 = sorted_techniques[:3]
         techniques = [t[0] for t in top3]
-        weights = [t[1] + 0.1 for t in top3]
-        total = sum(weights)
-        weights = [w/total for w in weights]
-
+        weights = [t[1] for t in top3]
+        
         chosen = random.choices(techniques, weights=weights, k=1)[0]
-        return chosen
+        params = self.get_params(current_analysis, next_analysis, chosen)
+        
+        return chosen, params
 
     def get_params(self, current_analysis, next_analysis, technique):
         """Get parameters for chosen technique"""

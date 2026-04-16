@@ -37,6 +37,7 @@ class AudioAnalyzer:
 
         # BPM & beats
         tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
+        tempo = float(np.atleast_1d(tempo)[0]) # Ensure scalar
         beat_times = librosa.frames_to_time(beats, sr=sr)
 
         # Key detection
@@ -86,7 +87,7 @@ class AudioAnalyzer:
 
         analysis = {
             'song_id': song_id,
-            'bpm': float(tempo),
+            'bpm': tempo,
             'key': detected_key,
             'mode': mode,
             'key_full': key_full,

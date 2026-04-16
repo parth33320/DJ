@@ -2,6 +2,7 @@ import os
 import random
 import json
 import threading
+from datetime import datetime
 import numpy as np
 import sounddevice as sd
 import tkinter as tk
@@ -12,7 +13,8 @@ from main import DJApp
 class DJUITester(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("PRO AI DJ - Transition Tester")
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.title(f"AI DJ Transition Tester (Launched: {timestamp})")
         self.geometry("600x450")
         self.configure(bg="#2b2b2b")
         
