@@ -1413,3 +1413,9 @@ class MasterTransitionEngine:
         if ramp_parts:
             ramp_audio = np.concatenate(ramp_parts)
             self._play_audio(ramp_audio, sr)
+
+    def double_time_transition(self, cur_id, nxt_id, params,
+                                cur_ana, nxt_ana):
+        """Transition from Half-time (70) to Double-time (140)"""
+        # For simplicity in this engine version, me uses beatmatch but with ramp label
+        return self.beatmatch_crossfade(cur_id, nxt_id, params, cur_ana, nxt_ana)

@@ -32,8 +32,8 @@ class AudioAnalyzer:
             with open(cache_path, 'r') as f:
                 return json.load(f)
 
-        print(f"   🔍 Analyzing audio...")
-        y, sr = librosa.load(filepath, sr=22050)
+        print(f"   🔍 Analyzing audio (fast speed-mode)...")
+        y, sr = librosa.load(filepath, sr=22050, duration=180.0)
 
         # BPM & beats
         tempo, beats = librosa.beat.beat_track(y=y, sr=sr)

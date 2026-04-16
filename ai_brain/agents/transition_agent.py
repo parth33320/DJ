@@ -24,6 +24,8 @@ class TransitionAgent:
             ('white_noise_sweep', self._rule_white_noise),
             ('vinyl_scratch_flourish', self._rule_scratch),
             ('tone_play', self._rule_tone_play),
+            ('half_time_transition', self._rule_half_time),
+            ('double_time_transition', self._rule_double_time),
         ]
 
     def _load_feedback_weights(self):
@@ -36,16 +38,28 @@ class TransitionAgent:
                 pass
         return {}
 
-    def decide(self, current_id, next_id, current_analysis, next_analysis):
+    def decide(self, *args):
         """
-        Decide best transition technique incorporating user learning
+        Flexible decide method to handle multiple call signatures:
+        1. (current_ana, next_ana, compatibility) -> Main Loop
+        2. (current_id, next_id, current_ana, next_ana) -> UI/Mobile Tester
         """
-        scores = {}
         feedback = self._load_feedback_weights()
+        
+        if len(args) == 4:
+            # Signiture: (current_id, next_id, cur_ana, nxt_ana)
+            cur_id, nxt_id, cur_ana, nxt_ana = args
+        elif len(args) == 3:
+            # Signiture: (cur_ana, nxt_ana, compatibility)
+            cur_ana, nxt_ana, compatibility = args
+            cur_id, nxt_id = "unknown", "unknown"
+        else:
+            raise ValueError(f"TransitionAgent.decide received {len(args)} args, expected 3 or 4")
 
+        scores = {}
         for technique, rule_func in self.technique_rules:
             # Base score from musical theory
-            base_score = rule_func(current_analysis, next_analysis, {})
+            base_score = rule_func(cur_ana, nxt_ana, {})
             
             # Apply learning weight (defaults to 1.0)
             user_weight = feedback.get(technique, 1.0)
@@ -64,9 +78,14 @@ class TransitionAgent:
         weights = [t[1] for t in top3]
         
         chosen = random.choices(techniques, weights=weights, k=1)[0]
-        params = self.get_params(current_analysis, next_analysis, chosen)
         
-        return chosen, params
+        # If called from UI/Mobile, return (technique, params)
+        if len(args) == 4:
+            params = self.get_params(cur_ana, nxt_ana, chosen)
+            return chosen, params
+            
+        # If called from Main Loop, return just the technique (it calls get_params later)
+        return chosen
 
     def get_params(self, current_analysis, next_analysis, technique):
         """Get parameters for chosen technique"""
@@ -224,3 +243,17 @@ class TransitionAgent:
             if camelot_cur[:-1] == camelot_nxt[:-1]:
                 return 0.7
         return 0.2
+
+    def _rule_half_time(self, cur, nxt, compat):
+        bpm_a = cur.get('bpm', 120)
+        bpm_b = nxt.get('bpm', 120)
+        if 130 <= bpm_a <= 160 and 65 <= bpm_b <= 85:
+            return 0.95
+        return 0.1
+
+    def _rule_double_time(self, cur, nxt, compat):
+        bpm_a = cur.get('bpm', 120)
+        bpm_b = nxt.get('bpm', 120)
+        if 60 <= bpm_a <= 85 and 120 <= bpm_b <= 165:
+            return 0.95
+        return 0.1

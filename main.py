@@ -1,16 +1,22 @@
+"""
+PRO AI DJ APP - Main Entry Point
+With all performance and reliability improvements
+"""
+
 import os
 import sys
 import yaml
 import time
 import threading
-import schedule
+import signal
 from colorama import init, Fore, Style
 init()
 
 # ═══════════════════════════════════════════════════════════════
-# ORIGINAL IMPORTS (ALL PRESERVED - NO CHANGES)
+# IMPORTS
 # ═══════════════════════════════════════════════════════════════
 
+# Original imports
 from ingestion.downloader import PlaylistDownloader
 from ingestion.stem_separator import StemSeparator
 from ingestion.lyrics_fetcher import LyricsFetcher
@@ -28,36 +34,38 @@ from ai_brain.agents.self_improve_agent import SelfImproveAgent
 from transition_engine.master_transition import MasterTransitionEngine
 from visual_engine.obs_bridge import OBSBridge
 from ui.web_ui.app import start_web_ui
-from utils.drive_manager import DriveManager
 
-# ═══════════════════════════════════════════════════════════════
-# 🆕 NEW IMPORT - Multi-Platform Streaming (Optional)
-# ═══════════════════════════════════════════════════════════════
+# 🆕 NEW: Core improvements
+try:
+    from core.audio_engine import AudioEngine
+    from core.task_queue import TaskQueue, TaskPriority
+    from core.cache_manager import CacheManager
+    from core.health_monitor import HealthMonitor
+    from core.prefetcher import Prefetcher
+    CORE_AVAILABLE = True
+except ImportError as e:
+    print(f"{Fore.YELLOW}⚠️ Core modules not found: {e}{Style.RESET_ALL}")
+    CORE_AVAILABLE = False
 
+# 🆕 NEW: Streaming
 try:
     from streaming.multi_streamer import MultiPlatformStreamer
     STREAMING_AVAILABLE = True
 except ImportError:
     STREAMING_AVAILABLE = False
-    print(f"{Fore.YELLOW}⚠️ Streaming module not found - streaming disabled{Style.RESET_ALL}")
-    print(f"   Create streaming/multi_streamer.py to enable")
 
-
-# ═══════════════════════════════════════════════════════════════
-# ORIGINAL FUNCTIONS (ALL PRESERVED - NO CHANGES)
-# ═══════════════════════════════════════════════════════════════
 
 def load_config():
-    with open('config.yaml', 'r', encoding='utf-8') as f:
+    with open('config.yaml', 'r') as f:
         return yaml.safe_load(f)
 
 
 def create_directories(config):
     for key, path in config['paths'].items():
         os.makedirs(path, exist_ok=True)
-    # 🆕 Also create streaming directories
     os.makedirs('data/recordings', exist_ok=True)
     os.makedirs('assets', exist_ok=True)
+    os.makedirs('core', exist_ok=True)
     os.makedirs('streaming', exist_ok=True)
     print(f"{Fore.GREEN}✅ Directories created{Style.RESET_ALL}")
 
@@ -65,17 +73,13 @@ def create_directories(config):
 def print_banner():
     print(f"""
 {Fore.CYAN}
-╔═══════════════════════════════════════════╗
-║          PRO AI DJ APP v1.0               ║
-║   Automated DJ • 24/7 • All Genres        ║
-║   🆕 Now with 50+ Platform Streaming!     ║
-╚═══════════════════════════════════════════╝
+╔═══════════════════════════════════════════════════════════╗
+║              PRO AI DJ APP v2.0                           ║
+║   Automated DJ • 24/7 • All Genres • 50+ Platforms        ║
+║   🆕 Now with: Async I/O, Smart Caching, Auto-Recovery    ║
+╚═══════════════════════════════════════════════════════════╝
 {Style.RESET_ALL}""")
 
-
-# ═══════════════════════════════════════════════════════════════
-# DJ APP CLASS (ORIGINAL + NEW STREAMING FEATURES)
-# ═══════════════════════════════════════════════════════════════
 
 class DJApp:
     def __init__(self):
@@ -85,7 +89,33 @@ class DJApp:
         print(f"{Fore.YELLOW}🔧 Initializing components...{Style.RESET_ALL}")
         
         # ═══════════════════════════════════════════════════════
-        # ORIGINAL COMPONENTS (ALL PRESERVED - NO CHANGES)
+        # 🆕 CORE SYSTEMS (New)
+        # ═══════════════════════════════════════════════════════
+        
+        if CORE_AVAILABLE:
+            # Task queue for async operations
+            self.task_queue = TaskQueue(num_workers=4)
+            self.task_queue.start()
+            
+            # Cache manager
+            self.cache = CacheManager(self.config)
+            
+            # Health monitor
+            self.health_monitor = HealthMonitor(self.config)
+            
+            # Audio engine (non-blocking)
+            self.audio_engine = AudioEngine(
+                self.config,
+                on_chunk_callback=self._on_audio_chunk
+            )
+        else:
+            self.task_queue = None
+            self.cache = None
+            self.health_monitor = None
+            self.audio_engine = None
+        
+        # ═══════════════════════════════════════════════════════
+        # ORIGINAL COMPONENTS
         # ═══════════════════════════════════════════════════════
         
         # Ingestion
@@ -110,13 +140,24 @@ class DJApp:
         
         # Engines
         self.transition_engine = MasterTransitionEngine(self.config)
-        self.obs_bridge = OBSBridge(self.config)  # Keep for backward compatibility
-        
-        # Storage
-        self.drive_manager = DriveManager(self.config)
+        self.obs_bridge = OBSBridge(self.config)
         
         # ═══════════════════════════════════════════════════════
-        # 🆕 NEW: Multi-Platform Streamer (replaces OBS need)
+        # 🆕 PREFETCHER (New)
+        # ═══════════════════════════════════════════════════════
+        
+        if CORE_AVAILABLE:
+            self.prefetcher = Prefetcher(
+                self.config,
+                self.downloader,
+                self.analyzer,
+                self.cache
+            )
+        else:
+            self.prefetcher = None
+        
+        # ═══════════════════════════════════════════════════════
+        # 🆕 STREAMING (New)
         # ═══════════════════════════════════════════════════════
         
         self.streamer = None
@@ -128,7 +169,7 @@ class DJApp:
                 self._init_streaming()
         
         # ═══════════════════════════════════════════════════════
-        # ORIGINAL STATE VARIABLES (ALL PRESERVED - NO CHANGES)
+        # STATE
         # ═══════════════════════════════════════════════════════
         
         self.playlist = []
@@ -136,39 +177,76 @@ class DJApp:
         self.is_playing = False
         self.current_song = None
         self.next_song = None
-        self.mode = "auto"  # auto or semi
+        self.mode = "auto"
+        
+        # ═══════════════════════════════════════════════════════
+        # 🆕 HEALTH CHECKS (New)
+        # ═══════════════════════════════════════════════════════
+        
+        if self.health_monitor:
+            self._setup_health_checks()
+        
+        # ═══════════════════════════════════════════════════════
+        # 🆕 GRACEFUL SHUTDOWN (New)
+        # ═══════════════════════════════════════════════════════
+        
+        try:
+            signal.signal(signal.SIGINT, self._signal_handler)
+            signal.signal(signal.SIGTERM, self._signal_handler)
+        except ValueError:
+            pass
         
         print(f"{Fore.GREEN}✅ All components initialized{Style.RESET_ALL}")
     
-    # ═══════════════════════════════════════════════════════════
-    # 🆕 NEW METHOD: Initialize Streaming
-    # ═══════════════════════════════════════════════════════════
-    
     def _init_streaming(self):
-        """Initialize multi-platform streaming"""
+        """Initialize streaming"""
         try:
-            print(f"{Fore.YELLOW}📺 Initializing streaming...{Style.RESET_ALL}")
-            
             self.streamer = MultiPlatformStreamer(self.config)
             self.streamer.load_from_config()
             
-            # Check if any platforms configured
             total = len(self.streamer.video_endpoints) + len(self.streamer.audio_endpoints)
-            
             if total > 0:
                 self.streaming_enabled = True
-                print(f"{Fore.GREEN}✅ Streaming ready: {total} platform(s){Style.RESET_ALL}")
-            else:
-                print(f"{Fore.YELLOW}⚠️ No streaming platforms configured{Style.RESET_ALL}")
-                print(f"   Add stream keys in config.yaml to enable")
-                
+                print(f"{Fore.GREEN}✅ Streaming: {total} platforms{Style.RESET_ALL}")
         except Exception as e:
             print(f"{Fore.RED}❌ Streaming init failed: {e}{Style.RESET_ALL}")
-            self.streaming_enabled = False
     
-    # ═══════════════════════════════════════════════════════════
-    # ORIGINAL METHOD: initial_setup (ALL PRESERVED - NO CHANGES)
-    # ═══════════════════════════════════════════════════════════
+    def _setup_health_checks(self):
+        """Setup health monitoring"""
+        # Audio engine health
+        self.health_monitor.add_check(
+            'audio_engine',
+            lambda: self.audio_engine and self.audio_engine.is_playing,
+            recovery_func=lambda: self.audio_engine.start()
+        )
+        
+        # Streaming health
+        if self.streaming_enabled:
+            self.health_monitor.add_check(
+                'streaming',
+                lambda: self.streamer and self.streamer.is_streaming,
+                recovery_func=lambda: self.streamer.start()
+            )
+        
+        # Task queue health
+        if self.task_queue:
+            self.health_monitor.add_check(
+                'task_queue',
+                lambda: self.task_queue.is_healthy(),
+            )
+        
+        self.health_monitor.start()
+    
+    def _on_audio_chunk(self, chunk):
+        """Callback for each audio chunk (for streaming)"""
+        if self.streaming_enabled and self.streamer:
+            self.streamer.send_audio(chunk)
+    
+    def _signal_handler(self, signum, frame):
+        """Handle shutdown signals"""
+        print(f"\n{Fore.YELLOW}⏹️ Shutdown signal received...{Style.RESET_ALL}")
+        self.shutdown()
+        sys.exit(0)
     
     def initial_setup(self):
         """First time setup - analyze all songs"""
@@ -182,59 +260,29 @@ class DJApp:
             with open('config.yaml', 'w') as f:
                 yaml.dump(self.config, f)
         
-        # Get playlist
         print(f"\n{Fore.YELLOW}📥 Fetching playlist...{Style.RESET_ALL}")
         self.playlist = self.downloader.get_playlist_metadata(playlist_url)
         
-        # Process each song
         total = len(self.playlist)
         for i, song in enumerate(self.playlist):
             print(f"\n[{i+1}/{total}] Processing: {song['title'][:50]}")
             
-            try:
-                # Download
-                filepath = self.downloader.download_song(song['url'], song['id'])
-                
-                # Analyze
-                analysis = self.analyzer.analyze_track(filepath, song['id'])
-                analysis['title'] = song['title']
-                
-                # Detect phrases
-                phrases = self.phrase_detector.detect_phrases(filepath, song['id'])
-                analysis['phrases'] = phrases
-                
-                # Find best entry points
-                entry_points = self.entry_finder.find_entry_points(
-                    filepath, analysis, song['id']
+            # 🆕 Use task queue for parallel processing
+            if self.task_queue:
+                self.task_queue.add(
+                    self._process_song,
+                    args=(song,),
+                    priority=TaskPriority.NORMAL,
+                    name=f"process_{song['id']}"
                 )
-                analysis['entry_points'] = entry_points
-                
-                # Separate stems
-                stems = self.stem_separator.separate(filepath, song['id'])
-                analysis['stems'] = stems
-                
-                # Get lyrics
-                lyrics = self.lyrics_fetcher.fetch(
-                    song['title'], song['id'], 
-                    stems.get('vocals')
-                )
-                analysis['lyrics'] = lyrics
-                
-                # Analyze vocals/words
-                if lyrics:
-                    phonemes = self.vocal_analyzer.analyze(
-                        stems.get('vocals'), lyrics, song['id']
-                    )
-                    analysis['phonemes'] = phonemes
-                
-                self.metadata_cache[song['id']] = analysis
-                
-                # Delete main audio (keep stems)
-                self.downloader.delete_audio(song['id'])
-                
-            except Exception as e:
-                print(f"{Fore.RED}❌ Error processing {song['title']}: {e}{Style.RESET_ALL}")
-                continue
+            else:
+                self._process_song(song)
+        
+        # Wait for all tasks
+        if self.task_queue:
+            while self.task_queue.tasks_pending > 0:
+                time.sleep(1)
+                print(f"   Pending: {self.task_queue.tasks_pending}")
         
         # Build word index
         print(f"\n{Fore.YELLOW}🗂️ Building word index...{Style.RESET_ALL}")
@@ -242,34 +290,97 @@ class DJApp:
         
         print(f"\n{Fore.GREEN}✅ Setup complete! {len(self.metadata_cache)} songs ready{Style.RESET_ALL}")
     
-    # ═══════════════════════════════════════════════════════════
-    # ORIGINAL METHOD: start_djing (ENHANCED with streaming)
-    # ═══════════════════════════════════════════════════════════
+    def _process_song(self, song):
+        """Process a single song (can run in parallel)"""
+        try:
+            # Check cache first
+            if self.cache and self.cache.exists('metadata', song['id']):
+                cached_path = self.cache.get('metadata', song['id'])
+                import json
+                with open(cached_path, 'r') as f:
+                    analysis = json.load(f)
+                self.metadata_cache[song['id']] = analysis
+                print(f"   ✅ Cached: {song['title'][:40]}")
+                return
+            
+            # Download
+            filepath = self.downloader.download_song(song['url'], song['id'])
+            
+            # Analyze
+            analysis = self.analyzer.analyze_track(filepath, song['id'])
+            analysis['title'] = song['title']
+            
+            # Detect phrases
+            phrases = self.phrase_detector.detect_phrases(filepath, song['id'])
+            analysis['phrases'] = phrases
+            
+            # Entry points
+            entry_points = self.entry_finder.find_entry_points(
+                filepath, analysis, song['id']
+            )
+            analysis['entry_points'] = entry_points
+            
+            # Stems
+            stems = self.stem_separator.separate(filepath, song['id'])
+            analysis['stems'] = stems
+            
+            # Lyrics
+            lyrics = self.lyrics_fetcher.fetch(
+                song['title'], song['id'],
+                stems.get('vocals')
+            )
+            analysis['lyrics'] = lyrics
+            
+            # Vocals
+            if lyrics:
+                phonemes = self.vocal_analyzer.analyze(
+                    stems.get('vocals'), lyrics, song['id']
+                )
+                analysis['phonemes'] = phonemes
+            
+            self.metadata_cache[song['id']] = analysis
+            
+            # Cache the analysis
+            if self.cache:
+                import json
+                cache_path = f"data/metadata/{song['id']}.json"
+                with open(cache_path, 'w') as f:
+                    json.dump(analysis, f)
+                self.cache.put('metadata', song['id'], cache_path)
+            
+            # Delete audio
+            self.downloader.delete_audio(song['id'])
+            
+            print(f"   ✅ Processed: {song['title'][:40]}")
+            
+        except Exception as e:
+            print(f"{Fore.RED}❌ Error processing {song['title']}: {e}{Style.RESET_ALL}")
     
     def start_djing(self):
         """Main DJ loop"""
         self.is_playing = True
         
-        # ═══ ORIGINAL: Start background services ═══
+        # Start services
+        if self.audio_engine:
+            self.audio_engine.start()
+        
+        if self.prefetcher:
+            self.prefetcher.start()
+        
+        if self.streaming_enabled and self.streamer:
+            self.streamer.start()
+        
+        # Background threads
         threading.Thread(target=self._playlist_watch_loop, daemon=True).start()
         threading.Thread(target=self._self_improve_loop, daemon=True).start()
         
-        # ═══ ORIGINAL: Start web UI ═══
-        threading.Thread(
-            target=start_web_ui, 
-            args=(self,), 
-            daemon=True
-        ).start()
+        # Web UI
+        threading.Thread(target=start_web_ui, args=(self,), daemon=True).start()
         
-        # ═══ ORIGINAL: Connect to OBS (kept for backward compatibility) ═══
+        # OBS (backward compatibility)
         self.obs_bridge.connect()
         
-        # ═══ 🆕 NEW: Start multi-platform streaming ═══
-        if self.streaming_enabled and self.streamer:
-            print(f"\n{Fore.CYAN}📺 Starting multi-platform stream...{Style.RESET_ALL}")
-            self.streamer.start()
-        
-        print(f"\n{Fore.GREEN}🎧 DJ APP LIVE! Starting mix...{Style.RESET_ALL}")
+        print(f"\n{Fore.GREEN}🎧 DJ APP LIVE!{Style.RESET_ALL}")
         
         # Pick first song
         self.current_song = self.selector.pick_first_song(self.metadata_cache)
@@ -278,196 +389,29 @@ class DJApp:
             try:
                 self._play_current_song()
             except KeyboardInterrupt:
-                print(f"\n{Fore.YELLOW}⏹️ Stopping DJ App...{Style.RESET_ALL}")
-                self._shutdown()
                 break
             except Exception as e:
-                print(f"{Fore.RED}❌ Playback error: {e}{Style.RESET_ALL}")
+                print(f"{Fore.RED}❌ Error: {e}{Style.RESET_ALL}")
                 time.sleep(2)
     
-    # ═══════════════════════════════════════════════════════════
-    # ORIGINAL METHOD: _play_current_song (ENHANCED with streaming)
-    # ═══════════════════════════════════════════════════════════
-    
     def _play_current_song(self):
-        """Play current song and prepare transition to next"""
+        """Play current song with all improvements"""
         current = self.metadata_cache[self.current_song]
         
-        print(f"\n{Fore.CYAN}▶️  NOW PLAYING: {current['title']}{Style.RESET_ALL}")
-        print(f"   BPM: {current['bpm']:.1f} | "
-              f"Key: {current['camelot']} | "
-              f"Genre: {current['genre_hint']}")
+        print(f"\n{Fore.CYAN}▶️  NOW: {current['title']}{Style.RESET_ALL}")
         
-        # ═══ 🆕 NEW: Update stream overlay ═══
+        # Update streaming overlay
         if self.streaming_enabled and self.streamer:
             self.streamer.update_song(
-                title=current.get('title', 'Unknown'),
+                title=current.get('title', ''),
                 bpm=current.get('bpm', 0),
                 key=current.get('camelot', ''),
                 genre=current.get('genre_hint', ''),
             )
         
-        # ═══ ORIGINAL: Find best next song ═══
+        # Pick next songs and prefetch
         next_song_id, compatibility = self.selector.pick_next_song(
             current, self.metadata_cache
         )
-        next_song = self.metadata_cache[next_song_id]
         
-        # ═══ ORIGINAL: Decide transition technique ═══
-        technique = self.transition_decider.decide(
-            current, next_song, compatibility
-        )
-        
-        # ═══ ORIGINAL: Check for wordplay opportunity ═══
-        wordplay = self.wordplay_agent.find_connection(
-            current, next_song
-        )
-        if wordplay and wordplay['score'] > 0.75:
-            technique = 'wordplay'
-            technique_params = wordplay
-        else:
-            technique_params = self.transition_decider.get_params(
-                current, next_song, technique
-            )
-        
-        # ═══ ORIGINAL: Quality check ═══
-        quality_score = self.quality_checker.check(
-            current, next_song, technique, technique_params
-        )
-        
-        if quality_score < self.config['transitions']['quality_threshold']:
-            print(f"{Fore.YELLOW}⚠️ Quality check failed, trying alternative...{Style.RESET_ALL}")
-            technique = self.transition_decider.get_fallback(current, next_song)
-            technique_params = self.transition_decider.get_params(
-                current, next_song, technique
-            )
-        
-        print(f"   Next: {next_song['title'][:40]}")
-        print(f"   Technique: {technique} | Quality: {quality_score:.2f}")
-        
-        # ═══ 🆕 NEW: Update stream with next song info ═══
-        if self.streaming_enabled and self.streamer:
-            self.streamer.update_song(
-                title=current.get('title', 'Unknown'),
-                bpm=current.get('bpm', 0),
-                key=current.get('camelot', ''),
-                genre=current.get('genre_hint', ''),
-                next_title=next_song.get('title', '')[:40],
-            )
-        
-        # ═══ ORIGINAL: Semi-auto mode approval ═══
-        if self.mode == "semi":
-            approval = input(f"\nApprove? (y/n/skip): ").strip().lower()
-            if approval == 'n':
-                next_song_id, compatibility = self.selector.pick_next_song(
-                    current, self.metadata_cache, exclude=[next_song_id]
-                )
-                next_song = self.metadata_cache[next_song_id]
-        
-        # ═══ ORIGINAL: Download next song audio if needed ═══
-        next_song_info = next(s for s in self.playlist if s['id'] == next_song_id)
-        next_filepath = self.downloader.download_song(
-            next_song_info['url'], next_song_id
-        )
-        
-        # ═══ ORIGINAL: Update OBS visuals (kept for compatibility) ═══
-        self.obs_bridge.update_display(current, next_song, technique)
-        
-        # ═══ ORIGINAL: Execute transition ═══
-        self.transition_engine.execute(
-            current_id=self.current_song,
-            next_id=next_song_id,
-            technique=technique,
-            params=technique_params,
-            current_analysis=current,
-            next_analysis=next_song
-        )
-        
-        # ═══ ORIGINAL: Move to next song ═══
-        self.current_song = next_song_id
-        
-        # ═══ ORIGINAL: Cleanup ═══
-        self.downloader.delete_audio(self.current_song)
-    
-    # ═══════════════════════════════════════════════════════════
-    # ORIGINAL METHOD: _playlist_watch_loop (NO CHANGES)
-    # ═══════════════════════════════════════════════════════════
-    
-    def _playlist_watch_loop(self):
-        """Check for new/deleted songs periodically"""
-        while self.is_playing:
-            time.sleep(
-                self.config['youtube']['check_interval_hours'] * 3600
-            )
-            self.playlist_watcher.check_for_changes(
-                self.config['youtube']['playlist_url'],
-                self.playlist,
-                self.metadata_cache,
-                self
-            )
-    
-    # ═══════════════════════════════════════════════════════════
-    # ORIGINAL METHOD: _self_improve_loop (NO CHANGES)
-    # ═══════════════════════════════════════════════════════════
-    
-    def _self_improve_loop(self):
-        """Periodic self-improvement"""
-        schedule.every(
-            self.config['ai']['self_improve_interval_days']
-        ).days.do(self.self_improver.run_improvement_cycle)
-        
-        while self.is_playing:
-            schedule.run_pending()
-            time.sleep(3600)
-    
-    # ═══════════════════════════════════════════════════════════
-    # 🆕 NEW METHOD: Graceful shutdown
-    # ═══════════════════════════════════════════════════════════
-    
-    def _shutdown(self):
-        """Graceful shutdown - stop all services"""
-        self.is_playing = False
-        
-        # Stop streaming
-        if self.streaming_enabled and self.streamer:
-            print(f"{Fore.YELLOW}📺 Stopping stream...{Style.RESET_ALL}")
-            self.streamer.stop()
-        
-        print(f"{Fore.GREEN}✅ DJ App stopped{Style.RESET_ALL}")
-    
-    # ═══════════════════════════════════════════════════════════
-    # 🆕 NEW METHOD: Get streaming status (for web UI)
-    # ═══════════════════════════════════════════════════════════
-    
-    def get_streaming_status(self):
-        """Get current streaming status"""
-        if not self.streaming_enabled or not self.streamer:
-            return {'enabled': False}
-        
-        return self.streamer.get_status()
-
-
-# ═══════════════════════════════════════════════════════════════
-# ORIGINAL MAIN FUNCTION (ALL PRESERVED - NO CHANGES)
-# ═══════════════════════════════════════════════════════════════
-
-def main():
-    print_banner()
-    app = DJApp()
-    
-    # Check if already set up
-    metadata_exists = os.path.exists('data/metadata') and \
-                      len(os.listdir('data/metadata')) > 0
-    
-    if not metadata_exists:
-        app.initial_setup()
-    else:
-        print(f"{Fore.GREEN}✅ Found existing analysis data{Style.RESET_ALL}")
-        app.metadata_cache = app.analyzer.load_all_metadata()
-        app.playlist = app.downloader.load_cached_playlist()
-    
-    app.start_djing()
-
-
-if __name__ == "__main__":
-    main()
+        # 🆕 Prefetch

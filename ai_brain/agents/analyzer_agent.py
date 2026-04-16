@@ -209,25 +209,11 @@ class AnalyzerAgent:
 
     def _save_complete_analysis(self, song_id, analysis):
         """Save complete analysis to disk"""
+        from utils.json_utils import make_serializable
         meta_path = os.path.join(
             self.metadata_dir, f"{song_id}.json"
         )
         # Convert any non-serializable types
-        clean = self._make_serializable(analysis)
+        clean = make_serializable(analysis)
         with open(meta_path, 'w', encoding='utf-8') as f:
             json.dump(clean, f, indent=2, ensure_ascii=False)
-
-    def _make_serializable(self, obj):
-        """Recursively convert numpy types to Python types"""
-        import numpy as np
-        if isinstance(obj, dict):
-            return {k: self._make_serializable(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [self._make_serializable(v) for v in obj]
-        elif isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return obj
