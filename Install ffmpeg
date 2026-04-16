@@ -1,0 +1,11 @@
+1. Go to: https://www.gyan.dev/ffmpeg/builds/
+2. Download: ffmpeg-release-essentials.zip
+3. Extract to: C:\ffmpeg\
+4. Add to PATH:
+   - Search "environment variables" in Windows
+   - Click "Environment Variables"
+   - Under System Variables find "Path"
+   - Click Edit → New
+   - Add: C:\ffmpeg\bin
+   - Click OK
+5. Test: open CMD and type: ffmpeg -version

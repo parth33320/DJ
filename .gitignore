@@ -1,0 +1,31 @@
+# Data & Cache
+data/
+data/audio_cache/
+data/metadata/
+data/stems/
+data/lyrics/
+data/phonemes/
+data/tokens/
+data/recordings/
+data/logs/*.json
+data/sandbox/
+
+# Credentials
+data/credentials.json
+data/yt_cookies.txt
+.env
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints
+.venv
+env/
+venv/
+build/
+dist/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db

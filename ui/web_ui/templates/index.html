@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro AI DJ App</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #0a0a14;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+            min-height: 100vh;
+        }
+
+        header {
+            background: #10101e;
+            border-bottom: 1px solid #2a2a4a;
+            padding: 15px 30px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        h1 {
+            font-size: 1.4rem;
+            color: #00c8ff;
+            letter-spacing: 3px;
+        }
+
+        .live-dot {
+            width: 10px; height: 10px;
+            background: #ff4444;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .card {
+            background: #10101e;
+            border: 1px solid #2a2a4a;
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .card h2 {
+            font-size: 0.8rem;
+            color: #888;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+        }
+
+        .now-playing {
+            grid-column: 1 / -1;
+            border-color: #00c8ff44;
+        }
+
+        .song-title {
+            font-size: 1.8rem;
+            color: #00c8ff;
+            margin-bottom: 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .song-meta {
+            display: flex;
+            gap: 30px;
+            font-size: 1rem;
+        }
+
+        .meta-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .meta-label {
+            font-size: 0.7rem;
+            color: #666;
+            letter-spacing: 1px;
+        }
+
+        .meta-value {
+            font-size: 1.2rem;
+            color: #fff;
+        }
+
+        .bpm-value { color: #ff6b35; }
+        .key-value { color: #50fa7b; }
+        .genre-value { color: #bd93f9; }
+        .technique-value { color: #f1fa8c; }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #00c8ff;
+            color: #000;
+        }
+
+        .btn-secondary {
+            background: #2a2a4a;
+            color: #fff;
+        }
+
+        .btn-danger {
+            background: #ff4444;
+            color: #fff;
+        }
+
+        button:hover { opacity: 0.8; transform: translateY(-1px); }
+
+        .mode-toggle {
+            display: flex;
+            gap: 5px;
+        }
+
+        .mode-btn {
+            padding: 8px 15px;
+            font-size: 0.75rem;
+        }
+
+        .mode-btn.active {
+            background: #50fa7b;
+            color: #000;
+        }
+
+        .playlist-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+        }
+
+        .playlist-table th {
+            text-align: left;
+            padding: 8px;
+            color: #666;
+            border-bottom: 1px solid #2a2a4a;
+        }
+
+        .playlist-table td {
+            padding: 8px;
+            border-bottom: 1px solid #15152a;
+        }
+
+        .playlist-table tr.current {
+            background: #00c8ff11;
+            color: #00c8ff;
+        }
+
+        .playlist-table tr:hover {
+            background: #1a1a2e;
+        }
+
+        .wordplay-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .word-tag {
+            background: #2a2a4a;
+            border: 1px solid #4a4a6a;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            color: #bd93f9;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .stat-item {
+            background: #15152a;
+            padding: 12px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 1.8rem;
+            color: #00c8ff;
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .connection-status {
+            font-size: 0.75rem;
+            color: #50fa7b;
+        }
+
+        .playlist-container {
+            grid-column: 1 / -1;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0a0a14; }
+        ::-webkit-scrollbar-thumb { background: #2a2a4a; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div>
+        <span class="live-dot"></span>
+        <h1>PRO AI DJ APP</h1>
+    </div>
+    <div class="connection-status" id="conn-status">Connecting...</div>
+</header>
+
+<div class="main-grid">
+
+    <!-- Now Playing -->
+    <div class="card now-playing">
+        <h2>Now Playing</h2>
+        <div class="song-title" id="song-title">Loading...</div>
+        <div class="song-meta">
+            <div class="meta-item">
+                <span class="meta-label">BPM</span>
+                <span class="meta-value bpm-value" id="bpm">---</span>
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">KEY</span>
+                <span class="meta-value key-value" id="key">---</span>
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">GENRE</span>
+                <span class="meta-value genre-value" id="genre">---</span>
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">TECHNIQUE</span>
+                <span class="meta-value technique-value" id="technique">---</span>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn-danger" onclick="skipSong()">⏭ SKIP</button>
+
+            <div class="mode-toggle">
+                <button class="mode-btn btn-secondary active"
+                        id="btn-auto"
+                        onclick="setMode('auto')">
+                    AUTO
+                </button>
+                <button class="mode-btn btn-secondary"
+                        id="btn-semi"
+                        onclick="setMode('semi')">
+                    SEMI-AUTO
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="card">
+        <h2>Library Stats</h2>
+        <div class="stats-grid">
+            <div class="stat-item">
+                <div class="stat-number" id="total-songs">0</div>
+                <div class="stat-label">SONGS</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="cross-words">0</div>
+                <div class="stat-label">WORD LINKS</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="mode-display">AUTO</div>
+                <div class="stat-label">MODE</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="playlist-count">0</div>
+                <div class="stat-label">PLAYLIST</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Wordplay Connections -->
+    <div class="card">
+        <h2>Wordplay Connections</h2>
+        <div class="wordplay-list" id="wordplay-list">
+            <div style="color:#666">Loading word index...</div>
+        </div>
+    </div>
+
+    <!-- Playlist -->
+    <div class="card playlist-container">
+        <h2>Playlist</h2>
+        <table class="playlist-table">
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>BPM</th>
+                    <th>Key</th>
+                    <th>Genre</th>
+                </tr>
+            </thead>
+            <tbody id="playlist-body">
+                <tr><td colspan="4" style="color:#666">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+</div>
+
+<script>
+    const socket = io();
+
+    socket.on('connect', () => {
+        document.getElementById('conn-status').textContent = '● LIVE';
+        socket.emit('request_update');
+    });
+
+    socket.on('disconnect', () => {
+        document.getElementById('conn-status').textContent = '○ DISCONNECTED';
+        document.getElementById('conn-status').style.color = '#ff4444';
+    });
+
+    socket.on('now_playing', (data) => {
+        document.getElementById('song-title').textContent =
+            data.title || 'Unknown';
+        document.getElementById('bpm').textContent =
+            data.bpm ? data.bpm.toFixed(1) : '---';
+        document.getElementById('key').textContent = data.key || '---';
+        document.getElementById('genre').textContent = data.genre || '---';
+        document.getElementById('technique').textContent =
+            (data.technique || '---').replace(/_/g, ' ').toUpperCase();
+    });
+
+    socket.on('state_update', (data) => {
+        document.getElementById('song-title').textContent =
+            data.title || 'Unknown';
+        document.getElementById('bpm').textContent =
+            data.bpm ? parseFloat(data.bpm).toFixed(1) : '---';
+        document.getElementById('key').textContent = data.key || '---';
+        document.getElementById('genre').textContent = data.genre || '---';
+        document.getElementById('mode-display').textContent =
+            (data.mode || 'AUTO').toUpperCase();
+    });
+
+    function skipSong() {
+        fetch('/api/skip', { method: 'POST' })
+            .then(r => r.json())
+            .then(d => console.log('Skip:', d));
+    }
+
+    function setMode(mode) {
+        fetch('/api/mode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode })
+        })
+        .then(r => r.json())
+        .then(d => {
+            document.getElementById('btn-auto').classList.toggle(
+                'active', mode === 'auto'
+            );
+            document.getElementById('btn-semi').classList.toggle(
+                'active', mode === 'semi'
+            );
+            document.getElementById('mode-display').textContent =
+                mode.toUpperCase();
+        });
+    }
+
+    function loadStatus() {
+        fetch('/api/status')
+            .then(r => r.json())
+            .then(d => {
+                document.getElementById('total-songs').textContent =
+                    d.total_songs || 0;
+                document.getElementById('playlist-count').textContent =
+                    d.playlist_count || 0;
+            });
+    }
+
+    function loadPlaylist() {
+        fetch('/api/playlist')
+            .then(r => r.json())
+            .then(songs => {
+                const tbody = document.getElementById('playlist-body');
+                tbody.innerHTML = songs.map(s => `
+                    <tr class="${s.is_current ? 'current' : ''}">
+                        <td>${s.title.substring(0, 45)}</td>
+                        <td>${s.bpm ? parseFloat(s.bpm).toFixed(0) : '-'}</td>
+                        <td>${s.key}</td>
+                        <td>${s.genre}</td>
+                    </tr>
+                `).join('');
+            });
+    }
+
+    function loadWordplay() {
+        fetch('/api/wordplay_index')
+            .then(r => r.json())
+            .then(d => {
+                document.getElementById('cross-words').textContent =
+                    d.cross_song_words || 0;
+                const list = document.getElementById('wordplay-list');
+                if (d.top_connections && d.top_connections.length > 0) {
+                    list.innerHTML = d.top_connections.map(
+                        w => `<span class="word-tag">${w}</span>`
+                    ).join('');
+                }
+            });
+    }
+
+    // Load data on start
+    loadStatus();
+    loadPlaylist();
+    loadWordplay();
+
+    // Refresh every 10 seconds
+    setInterval(() => {
+        loadStatus();
+        loadPlaylist();
+        socket.emit('request_update');
+    }, 10000);
+</script>
+
+</body>
+</html>

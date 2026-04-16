@@ -1,0 +1,318 @@
+# ============================================
+# DJ APP CONFIGURATION
+# ============================================
+
+paths:
+  audio_cache: "data/audio_cache"
+  stems: "data/stems"
+  metadata: "data/metadata"
+  lyrics: "data/lyrics"
+  phonemes: "data/phonemes"
+  word_index: "data/word_index"
+  training_data: "data/training_data"
+  models: "data/models"
+  logs: "data/logs"
+
+youtube:
+  playlist_url: "https://www.youtube.com/playlist?list=PL57m3GvPyDiSWZQawQTpwjOws5eZhu55i"
+  check_interval_hours: 6
+  cookie_file: "data/yt_cookies.txt"
+
+audio:
+  sample_rate: 44100
+  buffer_size: 2048
+  output_device: null
+  quality: "192k"
+
+analysis:
+  min_bpm: 60
+  max_bpm: 200
+  phrase_bars: [4, 8, 16, 32]
+  energy_sections: 10
+
+transitions:
+  default_crossfade_bars: 8
+  min_compatibility_score: 40
+  mashup_min_score: 70
+  wordplay_min_phoneme_similarity: 0.75
+  quality_threshold: 0.65
+  same_language_bias: 0.3
+
+ai:
+  use_local_model: true
+  local_model: "meta-llama/Llama-3.2-3B"
+  openai_api_key: ""
+  quality_check_enabled: true
+  self_improve_interval_days: 7
+
+visual:
+  width: 1920
+  height: 1080
+  fps: 60
+  stick_figure_enabled: true
+  equalizer_enabled: true
+  waveform_overlay: true
+  lyrics_display: true
+  obs_websocket_port: 4455
+  obs_websocket_password: ""
+
+storage:
+  drive_accounts: 
+    - "account_1"
+    - "account_2"
+    - "account_3"
+    - "account_4"
+    - "account_5"
+  max_local_cache_gb: 10
+  keep_deleted_songs: true
+
+youtube_channels:
+  tutorial_sources:
+    - "https://www.youtube.com/@PhilHarrisDeejay"
+    - "https://www.youtube.com/@CrossfaderDJ"
+    - "https://www.youtube.com/@siangyoo"
+    - "https://www.youtube.com/@BestDJTransitions"
+
+# ============================================
+# 🆕 STREAMING - NO OBS NEEDED!
+# ============================================
+# Supports 50+ platforms via Restream.io
+# Or connect directly to individual platforms
+# ============================================
+
+streaming:
+  enabled: true
+  
+  # Visual mode for stream:
+  # 'static'  - Just logo image (CPU: ~2%)
+  # 'minimal' - Simple visualizer bars (CPU: ~5%)  
+  # 'full'    - Full animations (CPU: ~15%)
+  visual_mode: 'minimal'
+  
+  # Stream quality
+  width: 1280
+  height: 720
+  fps: 30
+  video_bitrate: '2500k'
+  audio_bitrate: '192k'
+  
+  # ═══════════════════════════════════════════
+  # 🌟 RESTREAM.IO - RECOMMENDED!
+  # ═══════════════════════════════════════════
+  # One key = streams to ALL your connected platforms!
+  # Free tier: 2 platforms
+  # Paid tier: Unlimited platforms
+  # 
+  # Supports: YouTube, Facebook, LinkedIn, Twitch, Kick,
+  # Instagram, X/Twitter, TikTok, Rumble, Trovo, DLive,
+  # Nimo TV, Bilibili, Nonolive, KakaoTV, Naver TV, SOOP,
+  # Douyu, Huya, Zhanqi.tv, Amazon Live, Telegram, Substack,
+  # Mixcloud, Steam, Dailymotion, Picarto.TV, FC2 Live,
+  # Breakers.TV, Vaughn Live, Mux, MLG, and more!
+  # ═══════════════════════════════════════════
+  
+  restream:
+    enabled: false  # Set to true when you have key
+    stream_key: ''  # Get from: restream.io/settings/streaming-setup
+  
+  # ═══════════════════════════════════════════
+  # POPULAR PLATFORMS - Direct Connection
+  # (Use these if NOT using Restream)
+  # ═══════════════════════════════════════════
+  
+  youtube:
+    enabled: false
+    stream_key: ''  # YouTube Studio → Go Live → Stream Key
+    
+  facebook:
+    enabled: false
+    stream_key: ''  # Facebook Live Producer → Use Stream Key
+    
+  linkedin:
+    enabled: false
+    stream_url: ''  # LinkedIn gives full URL
+    stream_key: ''
+    
+  twitch:
+    enabled: false
+    stream_key: ''  # Twitch Dashboard → Settings → Stream Key
+    server: 'live'  # Options: live, jfk, lax, ord
+    
+  kick:
+    enabled: false
+    stream_key: ''  # Kick.com dashboard (95% payout!)
+    
+  instagram:
+    enabled: false
+    stream_url: ''  # Use Restream or Yellow Duck app
+    stream_key: ''
+    
+  x_twitter:
+    enabled: false
+    stream_url: ''  # X Media Studio
+    stream_key: ''
+    
+  tiktok:
+    enabled: false
+    stream_url: ''  # TikTok gives full URL (need 1000+ followers)
+    stream_key: ''
+  
+  # ═══════════════════════════════════════════
+  # SPECIALIZED & EMERGING PLATFORMS
+  # ═══════════════════════════════════════════
+  
+  rumble:
+    enabled: false
+    stream_key: ''
+    
+  trovo:
+    enabled: false
+    stream_key: ''
+    
+  dlive:
+    enabled: false
+    stream_key: ''  # Crypto tips platform!
+    
+  nimo_tv:
+    enabled: false
+    stream_key: ''  # Popular in Southeast Asia
+    
+  bilibili:
+    enabled: false
+    stream_key: ''  # Huge in China
+    
+  nonolive:
+    enabled: false
+    stream_url: ''
+    stream_key: ''
+    
+  kakao_tv:
+    enabled: false
+    stream_url: ''  # Popular in South Korea
+    stream_key: ''
+    
+  naver_tv:
+    enabled: false
+    stream_url: ''  # Popular in South Korea
+    stream_key: ''
+    
+  soop:
+    enabled: false
+    stream_url: ''  # Formerly AfreecaTV
+    stream_key: ''
+    
+  douyu:
+    enabled: false
+    stream_key: ''  # Huge in China
+    
+  huya:
+    enabled: false
+    stream_key: ''  # Huge in China
+    
+  zhanqi_tv:
+    enabled: false
+    stream_url: ''
+    stream_key: ''
+  
+  # ═══════════════════════════════════════════
+  # OTHER INTEGRATIONS
+  # ═══════════════════════════════════════════
+  
+  amazon_live:
+    enabled: false
+    stream_url: ''
+    stream_key: ''
+    
+  telegram:
+    enabled: false
+    stream_url: ''
+    stream_key: ''
+    
+  substack:
+    enabled: false
+    stream_url: ''
+    stream_key: ''
+    
+  mixcloud:
+    enabled: false
+    stream_url: ''  # Great for DJ streams!
+    stream_key: ''
+    
+  steam:
+    enabled: false
+    stream_key: ''
+    
+  dailymotion:
+    enabled: false
+    stream_key: ''
+    
+  picarto_tv:
+    enabled: false
+    stream_key: ''
+    
+  fc2_live:
+    enabled: false
+    stream_url: ''
+    stream_key: ''
+    
+  breakers_tv:
+    enabled: false
+    stream_url: ''
+    stream_key: ''
+    
+  vaughn_live:
+    enabled: false
+    stream_key: ''
+    
+  mux:
+    enabled: false
+    stream_key: ''
+    
+  mlg:
+    enabled: false
+    stream_url: ''
+    stream_key: ''
+  
+  # ═══════════════════════════════════════════
+  # CUSTOM RTMP/SRT/HLS/WHIP ENDPOINTS
+  # ═══════════════════════════════════════════
+  
+  custom_endpoints:
+    - name: ''
+      type: 'rtmp'  # rtmp, srt, hls, whip
+      url: ''
+      enabled: false
+  
+  # ═══════════════════════════════════════════
+  # AUDIO-ONLY PLATFORMS (Internet Radio)
+  # ═══════════════════════════════════════════
+  # Embed player on your website!
+  
+  icecast:
+    enabled: false
+    host: 'localhost'
+    port: 8000
+    password: 'hackme'
+    mount: '/live'
+    # Listeners go to: http://host:port/live
+    
+  shoutcast:
+    enabled: false
+    host: 'localhost'
+    port: 8000
+    password: ''
+  
+  # ═══════════════════════════════════════════
+  # RECORDING - Save VODs/Podcasts
+  # ═══════════════════════════════════════════
+  # Upload recordings later to:
+  # - YouTube (as VODs)
+  # - Spotify (podcast)
+  # - Apple Podcasts
+  # - Mixcloud
+  # - SoundCloud
+  
+  recording:
+    enabled: true
+    path: 'data/recordings'
+    format: 'mp4'  # mp4, mkv, flv

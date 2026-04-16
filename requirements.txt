@@ -1,0 +1,47 @@
+# Core
+yt-dlp
+librosa
+numpy
+scipy
+soundfile
+pydub
+
+# Stem Separation
+demucs
+
+# Lyrics
+openai-whisper
+requests
+beautifulsoup4
+
+# AI/ML
+torch
+torchaudio
+transformers
+langchain
+langchain-community
+openai
+
+# Audio playback
+sounddevice
+pygame
+
+# Web UI
+flask
+flask-socketio
+
+# Utilities
+python-dotenv
+tqdm
+colorama
+schedule
+watchdog
+phonemizer
+pronouncing
+langdetect
+googletrans==4.0.0rc1
+
+# Visualization
+matplotlib
+pillow
+opencv-python
