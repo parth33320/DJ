@@ -164,6 +164,27 @@ def feedback():
     current_task['audio_ready'] = False
     return jsonify({'status': 'ok'})
 
+def downloader_loop():
+    global dj
+    print("📡 Downloader loop started...")
+    while True:
+        try:
+            songs = dj.downloader.get_playlist_metadata(dj.config['youtube']['playlist_url'])
+            for s in songs:
+                path = os.path.join(dj.config['paths']['audio_cache'], f"{s['id']}.mp3")
+                if not os.path.exists(path):
+                    print(f"   📥 Downloading: {s['title']}")
+                    dj.downloader.download_song(s['url'], s['id'])
+                    # Sanitize filename for Windows
+                    clean_title = "".join([c for c in s['title'] if c.isalnum() or c in (' ', '.', '-', '_')]).strip()
+                    lib_path = os.path.join('data/library', f"{clean_title}.mp3")
+                    import shutil
+                    shutil.copy(path, lib_path)
+            time.sleep(300) # Check every 5 mins
+        except Exception as e:
+            print(f"   ❌ Downloader error: {e}")
+            time.sleep(60)
+
 def factory_loop():
     global current_task, validator
     innovation_batch = []
@@ -254,8 +275,9 @@ def init():
     global dj, validator
     dj = DJApp()
     validator = ValidationAgent(dj.config)
-    factory_loop()
+    threading.Thread(target=factory_loop, daemon=True).start()
+    threading.Thread(target=downloader_loop, daemon=True).start()
 
 if __name__ == '__main__':
-    threading.Thread(target=init, daemon=True).start()
-    app.run(host='0.0.0.0', port=8080)
+    init()
+    app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)

@@ -11,6 +11,6 @@ def send_notification(message, topic="dj-agent-parth"):
                           "Priority": "high",
                           "Tags": "musical_note,headphones"
                       })
-        print(f"🔔 Notification sent to topic: {topic}")
+        print(f"OK: Notification sent to topic: {topic}")
     except Exception as e:
-        print(f"❌ Failed to send notification: {e}")
+        print(f"ERROR: Failed to send notification: {e}")

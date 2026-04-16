@@ -6,7 +6,7 @@ from flask import Flask, render_template, jsonify, request, send_file
 import socket
 
 app = Flask(__name__)
-PORT = 9090 # Different port from DJ tester
+PORT = 8081
 
 # Shared Command Log
 LOG_PATH = "data/logs/remote_chat.jsonl"
@@ -30,40 +30,85 @@ def home():
     <html>
     <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-        <title>Antigravity Mobile Command</title>
+        <title>Antigravity Workbench</title>
         <style>
-            body { font-family: 'Courier New', monospace; background: #000; color: #0f0; margin: 0; padding: 10px; }
-            #terminal { height: 60vh; overflow-y: auto; border: 1px solid #0f0; padding: 10px; margin-bottom: 10px; font-size: 12px; background: #050505; }
+            body { font-family: 'Courier New', monospace; background: #000; color: #0f0; margin: 0; padding: 0; }
+            header { background: #111; padding: 10px; border-bottom: 1px solid #0f0; display: flex; justify-content: space-between; align-items: center; }
+            .tabs { display: flex; background: #111; }
+            .tab { flex: 1; padding: 10px; border: 1px solid #222; text-align: center; color: #444; cursor: pointer; }
+            .tab.active { color: #0f0; border-bottom: 2px solid #0f0; }
+            .panel { display: none; padding: 15px; }
+            .panel.active { display: block; }
+            #terminal { height: 60vh; overflow-y: auto; border: 1px solid #0f0; padding: 10px; margin-bottom: 10px; font-size: 11px; background: #050505; }
             #input-container { display: flex; gap: 5px; }
             input { flex-grow: 1; background: #000; color: #0f0; border: 1px solid #0f0; padding: 12px; font-size: 16px; outline: none; }
-            button { background: #0f0; color: #000; border: none; padding: 12px 20px; font-weight: bold; cursor: pointer; }
-            .msg { margin-bottom: 8px; border-bottom: 1px solid #020; padding-bottom: 4px; }
+            button { background: #0f0; color: #000; border: none; padding: 12px 20px; font-weight: bold; }
+            .msg { margin-bottom: 8px; }
             .user { color: #38bdf8; font-weight: bold; }
             .agent { color: #facc15; }
-            .timestamp { color: #444; font-size: 9px; }
+            .file-item { padding: 8px; border-bottom: 1px solid #222; font-size: 14px; color: #94a3b8; }
+            pre { background: #050505; padding: 10px; border: 1px solid #222; color: #94a3b8; overflow-x: auto; font-size: 10px; }
         </style>
     </head>
     <body>
-        <div style="font-size: 14px; margin-bottom: 10px;">🦖 ANTIGRAVITY MOBILE CMD v1.0</div>
-        <div id="terminal"></div>
-        <div id="input-container">
-            <input type="text" id="cmd" placeholder="Type to Agent..." autocomplete="off">
-            <button onclick="send()">SEND</button>
+        <header>
+            <div style="font-size: 12px; font-weight: bold;">🦖 ANTIGRAVITY WORKBENCH</div>
+            <div style="font-size: 9px; color: #444;">IP: """ + get_local_ip() + """</div>
+        </header>
+        <div class="tabs">
+            <div class="tab active" onclick="showTab('chat')">CHAT</div>
+            <div class="tab" onclick="showTab('files')">FILES</div>
+            <div class="tab" onclick="showTab('code')">CODE</div>
+        </div>
+
+        <div id="chat" class="panel active">
+            <div id="terminal"></div>
+            <div id="input-container">
+                <input type="text" id="cmd" placeholder="Command Agent..." autocomplete="off">
+                <button onclick="send()">SEND</button>
+            </div>
+        </div>
+
+        <div id="files" class="panel">
+            <div id="file-list">Loading files...</div>
+        </div>
+
+        <div id="code" class="panel">
+            <div id="file-path" style="font-size: 10px; color: #0f0; margin-bottom: 5px;">No file selected</div>
+            <pre id="code-viewer">Select a file from the FILES tab</pre>
         </div>
 
         <script>
-            const term = document.getElementById('terminal');
-            let lastId = 0;
+            let lastUpdate = 0;
 
-            function load() {
-                fetch('/get_messages').then(r => r.json()).then(msgs => {
-                    msgs.forEach(m => {
+            function showTab(id) {
+                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.getElementById(id).classList.add('active');
+                event.target.classList.add('active');
+                if(id === 'files') loadFiles();
+            }
+
+            function loadFiles() {
+                fetch('/list_files').then(r => r.json()).then(files => {
+                    const list = document.getElementById('file-list');
+                    list.innerHTML = '';
+                    files.forEach(f => {
                         const div = document.createElement('div');
-                        div.className = 'msg';
-                        div.innerHTML = `<span class="timestamp">[${new Date(m.t*1000).toLocaleTimeString()}]</span> <span class="${m.sender}">${m.sender.toUpperCase()}:</span> ${m.text}`;
-                        term.appendChild(div);
-                        term.scrollTop = term.scrollHeight;
+                        div.className = 'file-item';
+                        div.innerText = (f.isDir ? '📁 ' : '📄 ') + f.name;
+                        div.onclick = () => { if(!f.isDir) viewCode(f.name); };
+                        list.appendChild(div);
                     });
+                });
+            }
+
+            function viewCode(path) {
+                document.getElementById('file-path').innerText = path;
+                document.getElementById('code-viewer').innerText = "Loading " + path + "...";
+                showTab('code');
+                fetch('/get_code?path='+path).then(r => r.json()).then(data => {
+                    document.getElementById('code-viewer').innerText = data.code;
                 });
             }
 
@@ -77,23 +122,25 @@ def home():
                     body: JSON.stringify({text: text})
                 }).then(() => {
                     inp.value = "";
-                    const div = document.createElement('div');
-                    div.className = 'msg';
-                    div.innerHTML = `<span class="user">USER:</span> ${text}`;
-                    term.appendChild(div);
+                    load();
+                });
+            }
+
+            function load() {
+                fetch('/get_messages').then(r => r.json()).then(msgs => {
+                    const term = document.getElementById('terminal');
+                    term.innerHTML = '';
+                    msgs.forEach(m => {
+                        const div = document.createElement('div');
+                        div.className = 'msg';
+                        div.innerHTML = `<span class="${m.sender}">${m.sender.toUpperCase()}:</span> ${m.text}`;
+                        term.appendChild(div);
+                    });
                     term.scrollTop = term.scrollHeight;
                 });
             }
 
-            document.getElementById('cmd').addEventListener('keypress', (e) => {
-                if(e.key === 'Enter') send();
-            });
-
-            setInterval(load_updates, 2000);
-            
-            async function load_updates() {
-                 // Polling for agent responses
-            }
+            setInterval(load, 2000);
             load();
         </script>
     </body>
@@ -115,8 +162,26 @@ def get_messages():
     with open(LOG_PATH, 'r', encoding='utf-8') as f:
         for line in f:
             msgs.append(json.loads(line))
-    return jsonify(msgs[-50:]) # Last 50
+    return jsonify(msgs[-50:])
+
+@app.route('/list_files')
+def list_files():
+    files = []
+    for item in os.listdir('.'):
+        if item.startswith('.') or item == '__pycache__': continue
+        files.append({'name': item, 'isDir': os.path.isdir(item)})
+    return jsonify(sorted(files, key=lambda x: (not x['isDir'], x['name'])))
+
+@app.route('/get_code')
+def get_code():
+    path = request.args.get('path')
+    if not path or not os.path.exists(path): return jsonify({'code': 'File not found'})
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            return jsonify({'code': content})
+    except Exception as e:
+        return jsonify({'code': f'Error reading file: {e}'})
 
 if __name__ == '__main__':
-    print(f"🚀 Mobile Command Terminal at http://{get_local_ip()}:{PORT}")
     app.run(host='0.0.0.0', port=PORT)
