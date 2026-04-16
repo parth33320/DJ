@@ -2,7 +2,11 @@
 
 Welcome to the internal knowledge base for the Autonomous AI DJ Project.
 
-## 🚀 Getting Started
+## 📂 Navigation Index
+- [Architecture Diagram](../ARCHITECTURE.md)
+- [README (Home)](../README.md)
+- [Transition Techniques](#transition-techniques)
+- [Innovation Batching](#innovation-batching)
 
 ### Running the Mobile Tester
 1. Connect your phone to the same Wi-Fi or use the Public Cloudflare link.
@@ -28,6 +32,15 @@ Every mix is pre-checked. If the judge sees:
 - Terrible beat-match
 - Clipping audio
 ...It will **delete** the mix and try again automatically.
+
+## 🧪 Novel Techniques & Innovation
+
+### Innovation Batching (Best of 10)
+The system continuously generates experimental transitions. To ensure you only see high-quality inventions:
+1. The **Transition Agent** creates 10 "Novel" candidates.
+2. The **Validation Agent** scores each one.
+3. Only the **highest scoring** mix is sent to you via **ntfy** for approval.
+4. The remaining 9 are logged for training but kept out of your main queue.
 
 ## 🛠️ Maintenance & Tools
 

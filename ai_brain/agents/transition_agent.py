@@ -26,6 +26,7 @@ class TransitionAgent:
             ('tone_play', self._rule_tone_play),
             ('half_time_transition', self._rule_half_time),
             ('double_time_transition', self._rule_double_time),
+            ('novel_hybrid_mutation', self._rule_innovation),
         ]
 
     def _load_feedback_weights(self):
@@ -257,3 +258,7 @@ class TransitionAgent:
         if 60 <= bpm_a <= 85 and 120 <= bpm_b <= 165:
             return 0.95
         return 0.1
+
+    def _rule_innovation(self, cur, nxt, compat):
+        """Always give a baseline chance for a novel/random experiment"""
+        return 0.3

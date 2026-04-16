@@ -159,6 +159,8 @@ def feedback():
 
 def factory_loop():
     global current_task, validator
+    innovation_batch = []
+    
     while True:
         if current_task['audio_ready']:
             time.sleep(5)
@@ -182,13 +184,29 @@ def factory_loop():
             nxt_ana = dj.analyzer.analyze_track(nxt['path'], nxt['id'])
             
             technique, params = dj.transition_decider.decide(cur['id'], nxt['id'], cur_ana, nxt_ana)
+            
+            # 🚀 Mutation check
+            is_innovation = "novel" in technique.lower()
+            
             mix_path = dj.transition_engine.generate_transition_mix(cur['id'], nxt['id'], technique, params, cur_ana, nxt_ana)
             
             # 🚀 Validation
             score = validator.score_transition(mix_path, technique, cur_ana, nxt_ana)
+            
+            if is_innovation:
+                innovation_batch.append({'path': mix_path, 'score': score, 'tech': technique, 'titles': (cur['title'], nxt['title'])})
+                print(f"   🧪 Innovation Batch: {len(innovation_batch)}/10 collected.")
+                
+                if len(innovation_batch) >= 10:
+                    # Pick winner
+                    winner = max(innovation_batch, key=lambda x: x['score'])
+                    msg = f"🏆 TOP INNOVATION FOUND!\nMethod: {winner['tech']}\nScore: {winner['score']:.2f}\nSongs: {winner['titles'][0]} -> {winner['titles'][1]}"
+                    send_notification(msg)
+                    innovation_batch = [] # Reset
+            
             if score < 0.4:
-                print(f"   🗑️  Validation failed ({score:.2f}). Deleting and retrying...")
-                os.remove(mix_path)
+                print(f"   🗑️  Validation failed ({score:.2f}). Deleting...")
+                if os.path.exists(mix_path): os.remove(mix_path)
                 continue
                 
             # 🚀 Slice
