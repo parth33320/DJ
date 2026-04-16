@@ -196,7 +196,7 @@ class DJApp:
         except ValueError:
             pass
         
-        print(f"{Fore.GREEN}✅ All components initialized{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}[OK] All components initialized{Style.RESET_ALL}")
     
     def _init_streaming(self):
         """Initialize streaming"""
