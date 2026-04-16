@@ -13,7 +13,7 @@ from colorama import Fore, Style
 from main import DJApp
 from utils.notifier import send_notification
 from utils.json_utils import make_serializable
-from ai_brain.validation_agent import ValidationAgent
+from ai_brain.agents.validation_agent import ValidationAgent
 
 app = Flask(__name__)
 dj = None
