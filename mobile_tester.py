@@ -81,7 +81,13 @@ def home():
             </div>
             
             <div id="content">
-                <h2 id="songs">Waiting...</h2>
+                <div style="margin-bottom: 20px;">
+                    <div style="font-size: 10px; color: #94a3b8; font-weight: bold; text-transform: uppercase;">Outgoing Song</div>
+                    <div id="outgoing-title" style="font-size: 18px; font-weight: bold; color: #f87171;">WAITING...</div>
+                    <div style="margin: 10px 0; color: #475569;">⬇️</div>
+                    <div style="font-size: 10px; color: #94a3b8; font-weight: bold; text-transform: uppercase;">Incoming Song</div>
+                    <div id="incoming-title" style="font-size: 18px; font-weight: bold; color: #22c55e;">WAITING...</div>
+                </div>
                 <div id="technique-box">
                     <div style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-bottom: 5px;">
                         <span class="tech-label">Transition Technique</span>
@@ -115,7 +121,8 @@ def home():
                     } else if (data.audio_ready) {
                         document.getElementById('loading').style.display = 'none';
                         document.getElementById('content').style.display = 'block';
-                        document.getElementById('songs').innerText = data.cur_title + " → " + data.nxt_title;
+                        document.getElementById('outgoing-title').innerText = data.cur_title;
+                        document.getElementById('incoming-title').innerText = data.nxt_title;
                         document.getElementById('technique-name').innerText = data.technique.toUpperCase();
                         document.getElementById('innovation-badge').style.display = data.technique.includes('novel') ? 'inline-block' : 'none';
                         if (data.last_update > lastUpdate) {
