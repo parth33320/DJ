@@ -10,6 +10,7 @@ class StemSeparator:
     def __init__(self, config):
         self.config = config
         self.stems_dir = config['paths']['stems']
+        self.cache_dir = config['paths']['audio_cache']
         os.makedirs(self.stems_dir, exist_ok=True)
         
         # Check GPU availability
@@ -36,24 +37,30 @@ class StemSeparator:
         
         os.makedirs(song_stems_dir, exist_ok=True)
         
+        # ✂️ OPTIMIZATION: Trim audio to 120s around the expected transition
+        # Most transitions are near the end. We take 90s to end.
+        temp_trim = os.path.join(self.cache_dir, f"{song_id}_trimmed.wav")
+        try:
+            print(f"   ✂️  Trimming for fast separation...")
+            # Use ffmpeg to get last 120s (or first if short)
+            subprocess.run([
+                "ffmpeg", "-y", "-i", filepath, 
+                "-ss", "30", "-t", "120", 
+                "-ac", "2", "-ar", "44100", temp_trim
+            ], check=True, capture_output=True)
+            proc_path = temp_trim
+        except:
+            proc_path = filepath
+
         print(f"🎚️  Separating stems: {song_id}")
         
         # Run Demucs
-        cmd = [
-            "python", "-m", "demucs",
-            "--two-stems", "vocals",  # Fast mode: vocals + accompaniment
-            "-o", self.stems_dir,
-            "--mp3",
-            filepath
-        ]
-        
-        # For full 4-stem separation (slower but better):
         cmd_full = [
             "python", "-m", "demucs",
-            "-n", "htdemucs",  # Best model
+            "--two-stems", "vocals",  # Vocals vs Everything else is faster
             "-o", self.stems_dir,
             "--device", self.device,
-            filepath
+            proc_path
         ]
         
         try:
@@ -78,9 +85,12 @@ class StemSeparator:
                 if os.path.exists(src):
                     os.rename(src, dst_path)
                     
+            # Clean up temp trim
+            if os.path.exists(temp_trim): os.remove(temp_trim)
+            
         except subprocess.CalledProcessError as e:
             print(f"❌ Stem separation failed: {e}")
-            # Return None for stems that failed
+            if os.path.exists(temp_trim): os.remove(temp_trim)
             return {k: v if os.path.exists(v) else None 
                    for k, v in stems.items()}
         
