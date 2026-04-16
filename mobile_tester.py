@@ -113,7 +113,10 @@ def home():
                 </div>
 
                 <div id="technique-box">
-                    <div class="tech-label">Transition Technique</div>
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-bottom: 5px;">
+                        <span class="tech-label">Transition Technique</span>
+                        <span id="innovation-badge" style="display:none; background: #fbbf24; color: #000; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold;">💡 INNOVATION</span>
+                    </div>
                     <div id="technique-name" class="tech-value">WAITING...</div>
                 </div>
 
@@ -166,6 +169,12 @@ def home():
                             
                             const techName = data.technique.replace(/_/g, ' ').toUpperCase();
                             document.getElementById('technique-name').innerText = techName;
+                            
+                            // Show Innovation badge if it's a novel mutation
+                            const isNovel = data.technique.toLowerCase().includes('novel');
+                            document.getElementById('innovation-badge').style.display = isNovel ? 'inline-block' : 'none';
+                            if (isNovel) document.getElementById('technique-box').style.borderColor = '#fbbf24';
+                            else document.getElementById('technique-box').style.borderColor = '#38bdf8';
                             
                             if (data.last_update > lastUpdate) {
                                 player.src = '/mix.wav?t=' + data.last_update;
