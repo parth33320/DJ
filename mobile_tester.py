@@ -70,6 +70,10 @@ def home():
             
             .loader { border: 4px solid #334155; border-top: 4px solid #38bdf8; border-radius: 50%; width: 40px; height: 40px; animation: spin 0.8s linear infinite; margin: 20px auto; }
             @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            
+            #technique-box { background:#334155; padding:15px; border-radius:12px; border:2px solid #38bdf8; margin:15px 0; }
+            .tech-label { font-size:10px; color:#38bdf8; font-weight:bold; text-transform:uppercase; }
+            .tech-value { font-size:18px; font-weight:bold; color:white; margin:5px 0; }
         </style>
     </head>
     <body>
@@ -108,7 +112,10 @@ def home():
                     <button class="btn btn-blue" onclick="jumpToTrans()" style="padding: 8px 15px;">Jump to Trans</button>
                 </div>
 
-                <p id="technique" class="status"></p>
+                <div id="technique-box">
+                    <div class="tech-label">Transition Technique</div>
+                    <div id="technique-name" class="tech-value">WAITING...</div>
+                </div>
 
                 <textarea id="comments" placeholder="Suggestions for the Agent? (e.g. 'Beat was off')"></textarea>
 
@@ -156,12 +163,14 @@ def home():
                             document.getElementById('content').style.display = 'block';
                             document.getElementById('error-box').style.display = 'none';
                             document.getElementById('songs').innerText = data.cur_title + " → " + data.nxt_title;
-                            document.getElementById('technique').innerText = "Technique: " + data.technique.toUpperCase();
+                            
+                            const techName = data.technique.replace(/_/g, ' ').toUpperCase();
+                            document.getElementById('technique-name').innerText = techName;
                             
                             if (data.last_update > lastUpdate) {
                                 player.src = '/mix.wav?t=' + data.last_update;
                                 lastUpdate = data.last_update;
-                                player.currentTime = 15; // Start 15s before transition (at 15s mark of 60s clip)
+                                player.currentTime = 15;
                             }
                         }
                     });
@@ -206,14 +215,12 @@ def feedback():
     is_pass = data.get('pass')
     text_feedback = data.get('text_feedback', '')
     
-    # Record feedback
     technique = current_task['technique']
     rating = 8 if is_pass else 3
     weight_file = os.path.join('data', 'logs', 'feedback_weights.json')
     text_log_file = os.path.join('data', 'logs', 'text_feedback.jsonl')
     os.makedirs(os.path.dirname(weight_file), exist_ok=True)
     
-    # Update weights
     weights = {}
     if os.path.exists(weight_file):
         try:
@@ -228,7 +235,6 @@ def feedback():
     with open(weight_file, 'w') as f:
         json.dump(make_serializable(weights), f, indent=4)
 
-    # Log text feedback
     if text_feedback:
         log_entry = {
             'timestamp': time.time(),
@@ -242,20 +248,16 @@ def feedback():
             f.write(json.dumps(make_serializable(log_entry)) + "\n")
             
     print(f"✅ Feedback received: {'PASS' if is_pass else 'FAIL'} for {technique}")
-    
-    # Trigger next generation
     threading.Thread(target=generate_loop, daemon=True).start()
     return jsonify({'status': 'ok'})
 
 def generate_loop():
     global current_task
-    
     current_task['status'] = 'generating'
     current_task['audio_ready'] = False
     current_task['eta'] = int(time.time() + 120) 
     
     try:
-        # Pick 2 songs from library
         files = [f for f in os.listdir('data/library') if f.endswith('.mp3')]
         if len(files) < 2:
             current_task.update({'status': 'error', 'error_msg': 'Need 2+ songs in data/library'})
@@ -263,25 +265,20 @@ def generate_loop():
 
         random.shuffle(files)
         s1, s2 = files[0], files[1]
-        
         cur = {'id': s1.replace('.mp3', ''), 'title': s1, 'path': os.path.join('data/library', s1)}
         nxt = {'id': s2.replace('.mp3', ''), 'title': s2, 'path': os.path.join('data/library', s2)}
         
-        # Analyze
         cur_ana = dj.analyzer.analyze_track(cur['path'], cur['id'])
         nxt_ana = dj.analyzer.analyze_track(nxt['path'], nxt['id'])
         
-        # Decide
         technique, params = dj.transition_decider.decide(cur['id'], nxt['id'], cur_ana, nxt_ana)
         
-        # Execute mix
         mix_path = dj.transition_engine.generate_transition_mix(
             cur['id'], nxt['id'], technique, params, cur_ana, nxt_ana
         )
         
-        # 🚀 60S SLICE LOGIC
         audio_full, sr = librosa.load(mix_path, sr=44100)
-        center_sec = 30.0 # Engine puts trans center here for test_mix
+        center_sec = 30.0 
         if len(audio_full) > (60 * sr):
             start_sample = max(0, int((center_sec - 30) * sr))
             end_sample = min(len(audio_full), int((center_sec + 30) * sr))
@@ -297,10 +294,8 @@ def generate_loop():
             'last_update': time.time()
         })
         
-        # Notify
         msg = f"🎧 Ready: {cur['title']} ➔ {nxt['title']}\nMethod: {technique.upper()}"
-        public_url = "https://antiques-roommate-warcraft-bodies.trycloudflare.com"
-        send_notification(msg, click_url=public_url)
+        send_notification(msg, click_url="https://antiques-roommate-warcraft-bodies.trycloudflare.com")
         
     except Exception as e:
         import traceback
@@ -313,13 +308,10 @@ def init_and_loop():
     print(f"{Fore.CYAN}🔧 Initializing DJ App in background...{Style.RESET_ALL}")
     try:
         dj = DJApp()
-        print(f"{Fore.GREEN}✅ All components initialized{Style.RESET_ALL}")
         generate_loop()
     except Exception as e:
-        print(f"{Fore.RED}❌ Initialization failed: {e}{Style.RESET_ALL}")
         current_task.update({'status': 'error', 'error_msg': str(e)})
 
 if __name__ == '__main__':
     threading.Thread(target=init_and_loop, daemon=True).start()
-    print(f"\n{Fore.CYAN}🚀 Mobile Tester running at: http://{get_local_ip()}:8080{Style.RESET_ALL}")
     app.run(host='0.0.0.0', port=8080)
