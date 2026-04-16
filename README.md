@@ -5,6 +5,7 @@
 ## 📌 Index
 - [🏗️ System Architecture](ARCHITECTURE.md)
 - [📖 Project Wiki](docs/WIKI.md)
+- [📱 Mobile Command Terminal](tools/antigravity_mobile.py)
 - [🧠 The AI Brain & Agents](docs/WIKI.md#the-ai-brain)
 - [🧪 Novel Techniques & Innovation](docs/WIKI.md#novel-techniques--innovation)
 - [🛠️ Maintenance & Tools](docs/WIKI.md#maintenance--tools)
