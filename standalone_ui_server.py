@@ -77,18 +77,18 @@ MOBILE_UI_HTML = """
                     <audio controls autoplay src="/audio?path=${encodeURIComponent(item.local_path)}"></audio>
                     <textarea id="feedback-input" placeholder="TEACH THE AI: Why was this mix fire or trash?"></textarea>
                     <div class="btn-row">
-                        <button class="btn-fail" onclick="rate(${item.timestamp}, '${item.technique}', 2, '${item.from_title.replace(/'/g,"")}', '${item.to_title.replace(/'/g,"")}')">👎 Trash</button>
-                        <button class="btn-pass" onclick="rate(${item.timestamp}, '${item.technique}', 8, '${item.from_title.replace(/'/g,"")}', '${item.to_title.replace(/'/g,"")}')">🔥 Fire</button>
+                        <button class="btn-fail" onclick="rate(${item.timestamp}, '${item.technique}', 2, '${item.from_title.replace(/'/g,"")}', '${item.to_title.replace(/'/g,"")}', '${item.from_id}', '${item.to_id}')">👎 Trash</button>
+                        <button class="btn-pass" onclick="rate(${item.timestamp}, '${item.technique}', 8, '${item.from_title.replace(/'/g,"")}', '${item.to_title.replace(/'/g,"")}', '${item.from_id}', '${item.to_id}')">🔥 Fire</button>
                     </div>
                 </div>`;
         }
-        async function rate(ts, tech, rating, from, to) {
+        async function rate(ts, tech, rating, from, to, from_id, to_id) {
             const feedback = document.getElementById('feedback-input').value;
             document.getElementById('focus-card').style.opacity = '0.3';
             await fetch('/api/rate', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ timestamp: ts, technique: tech, rating: rating, feedback: feedback, track_a: from, track_b: to })
+                body: JSON.stringify({ timestamp: ts, technique: tech, rating: rating, feedback: feedback, track_a: from, track_b: to, from_id: from_id, to_id: to_id })
             });
             fetchQueue();
         }
@@ -135,11 +135,18 @@ def rate_transition():
         mem.append({"timestamp": ts, "technique": tech, "rating": rating, "criticism": feedback})
         save_json(MEMORY_FILE, mem[-50:])
         
+        # 🚨 CAVE-MAN FIX: If FAIL, trigger REMEDIATION mode, save IDs!
         if rating < 5:
             state = load_json(STATE_FILE, {})
-            state.update({'penalty_until': time.time() + 3600, 'homework_query': feedback, 'homework_completed': False})
+            state.update({
+                'mode': 'REMEDIATION',
+                'failed_technique': tech,
+                'failed_from_id': data.get('from_id'),
+                'failed_to_id': data.get('to_id'),
+                'homework_query': f"How to DJ {tech} transition step by step"
+            })
             save_json(STATE_FILE, state)
-            print(f"🛑 Penalty box triggered for 1 hour: {feedback}")
+            print(f"🛑 FAIL DETECTED: Agent going to study {tech} for {data.get('track_a')} -> {data.get('track_b')}")
 
     return jsonify({"status": "success"})
 
