@@ -16,20 +16,25 @@ class SelectorAgent:
         self.max_history = 50
 
     def pick_first_song(self, metadata_cache):
-        """Pick a good opening song"""
-        # Start with medium energy song
-        songs = list(metadata_cache.values())
+        """Pick a good opening song safely"""
+        if not metadata_cache:
+            print("⚠️ Cache empty! Cannot pick first song.")
+            return None
+            
+        # FIXED: Use cache keys directly instead of guessing dictionary keys!
+        songs = [(sid, data) for sid, data in metadata_cache.items()]
 
         # Sort by energy, pick from middle third
-        songs.sort(key=lambda x: x.get('energy_mean', 0))
+        songs.sort(key=lambda x: x[1].get('energy_mean', 0))
         middle = songs[len(songs)//3: 2*len(songs)//3]
 
         if middle:
-            chosen = random.choice(middle)
-            self.play_history.append(chosen['song_id'])
-            return chosen['song_id']
-
-        return songs[0]['song_id']
+            chosen_id = random.choice(middle)[0]
+        else:
+            chosen_id = songs[0][0]
+            
+        self.play_history.append(chosen_id)
+        return chosen_id
 
     def pick_next_song(self, current_analysis, metadata_cache,
                        exclude=None):
@@ -41,15 +46,22 @@ class SelectorAgent:
         exclude.extend(self.play_history[-5:])  # Avoid recent songs
 
         candidates = []
+        
+        # FIXED: Safely get current ID (main.py uses 'id', not 'song_id')
+        cur_id = current_analysis.get('id', current_analysis.get('song_id', None))
 
         for song_id, analysis in metadata_cache.items():
             if song_id in exclude:
                 continue
-            if song_id == current_analysis['song_id']:
+            if song_id == cur_id:
                 continue
 
             # Score compatibility
-            compat = self.scorer.score(current_analysis, analysis)
+            try:
+                compat = self.scorer.score(current_analysis, analysis)
+            except Exception as e:
+                print(f"⚠️ Compatibility scoring failed for {song_id}: {e}")
+                compat = {'score': 50, 'reasons': ['scoring failed']}
 
             # Apply language bias (prefer same language)
             cur_lang = current_analysis.get('lyrics', {})
@@ -58,9 +70,9 @@ class SelectorAgent:
                 cur_l = cur_lang.get('language', '')
                 nxt_l = nxt_lang.get('language', '')
                 if cur_l == nxt_l and cur_l != 'unknown':
-                    compat['score'] += (
-                        self.config['transitions']['same_language_bias'] * 100
-                    )
+                    # FIXED: Safe config fallback
+                    bias = self.config.get('transitions', {}).get('same_language_bias', 0.3)
+                    compat['score'] += (bias * 100)
 
             # Penalize if played recently
             if song_id in self.play_history:
@@ -74,19 +86,27 @@ class SelectorAgent:
             # Fallback: pick random not recently played
             available = [
                 sid for sid in metadata_cache.keys()
-                if sid not in self.play_history[-3:]
+                if sid not in self.play_history[-3:] and sid != cur_id
             ]
             if available:
                 chosen_id = random.choice(available)
                 return chosen_id, {'score': 50, 'recommended_transition':
-                                   'cut_transition', 'reasons': []}
+                                   'cut_transition', 'reasons': ['random fallback']}
+            elif metadata_cache:
+                # Extreme fallback - just grab anything!
+                chosen_id = list(metadata_cache.keys())[0]
+                return chosen_id, {'score': 50, 'reasons': ['extreme fallback']}
+            else:
+                return None, None
 
         # Sort by score
         candidates.sort(key=lambda x: x[1]['score'], reverse=True)
 
         # Add some randomness - pick from top 5
         top_candidates = candidates[:5]
-        weights = [c[1]['score'] for c in top_candidates]
+        
+        # FIXED: Ensure weights are never negative!
+        weights = [max(0.1, c[1]['score']) for c in top_candidates]
         total = sum(weights)
         if total > 0:
             weights = [w/total for w in weights]
