@@ -1,6 +1,6 @@
 """
 Smart Prefetcher - Download and analyze next songs in advance
-Fixes: Blocking downloads, no lookahead, cold starts
+Fixes: Blocking downloads, no lookahead, cold starts, thread crashes
 """
 
 import threading
@@ -40,9 +40,10 @@ class Prefetcher:
         # How many songs to prefetch
         self.lookahead = config.get('prefetch', {}).get('lookahead', 3)
         
-        # Jobs
+        # Jobs and Thread Safety
         self.jobs: Dict[str, PrefetchJob] = {}
         self.job_queue = queue.PriorityQueue()
+        self.jobs_lock = threading.Lock()  # FIXED: Protects dictionary from multi-thread crashes!
         
         # Workers
         self.is_running = False
@@ -84,21 +85,22 @@ class Prefetcher:
         Called when selector picks next songs
         """
         for priority, song_id in enumerate(song_ids[:self.lookahead]):
-            if song_id in self.jobs:
-                continue
-            
-            job = PrefetchJob(
-                song_id=song_id,
-                priority=priority,
-                requested_at=time.time(),
-            )
-            
-            self.jobs[song_id] = job
+            with self.jobs_lock:
+                if song_id in self.jobs:
+                    continue
+                
+                job = PrefetchJob(
+                    song_id=song_id,
+                    priority=priority,
+                    requested_at=time.time(),
+                )
+                self.jobs[song_id] = job
             
             # Check if already cached
             if self.cache.exists('audio', song_id):
-                job.filepath = self.cache.get('audio', song_id)
-                job.status = 'analyzing'
+                with self.jobs_lock:
+                    self.jobs[song_id].filepath = self.cache.get('audio', song_id)
+                    self.jobs[song_id].status = 'analyzing'
             else:
                 self.job_queue.put((priority, song_id, 'download'))
     
@@ -107,17 +109,18 @@ class Prefetcher:
         Get prefetched song if ready
         Returns {'filepath': ..., 'analysis': ...} or None
         """
-        if song_id not in self.jobs:
-            return None
-        
-        job = self.jobs[song_id]
-        
-        if job.status == 'ready':
-            return {
-                'filepath': job.filepath,
-                'analysis': job.analysis,
-            }
-        
+        with self.jobs_lock:
+            if song_id not in self.jobs:
+                return None
+            
+            job = self.jobs[song_id]
+            
+            if job.status == 'ready':
+                return {
+                    'filepath': job.filepath,
+                    'analysis': job.analysis,
+                }
+            
         return None
     
     def wait_for_song(self, song_id: str, timeout: float = 30) -> Optional[dict]:
@@ -133,8 +136,9 @@ class Prefetcher:
                 return result
             
             # Check if failed
-            if song_id in self.jobs and self.jobs[song_id].status == 'failed':
-                return None
+            with self.jobs_lock:
+                if song_id in self.jobs and self.jobs[song_id].status == 'failed':
+                    return None
             
             time.sleep(0.5)
         
@@ -148,8 +152,9 @@ class Prefetcher:
         self.current_song_id = song_id
         
         # Remove from jobs (no longer needed in prefetch)
-        if song_id in self.jobs:
-            del self.jobs[song_id]
+        with self.jobs_lock:
+            if song_id in self.jobs:
+                del self.jobs[song_id]
         
         # Cleanup old jobs
         self._cleanup_old_jobs()
@@ -163,31 +168,33 @@ class Prefetcher:
                 if action != 'download':
                     continue
                 
-                if song_id not in self.jobs:
-                    continue
-                
-                job = self.jobs[song_id]
-                
-                if job.status != 'pending':
-                    continue
-                
-                job.status = 'downloading'
+                with self.jobs_lock:
+                    if song_id not in self.jobs:
+                        continue
+                    job = self.jobs[song_id]
+                    if job.status != 'pending':
+                        continue
+                    job.status = 'downloading'
                 
                 try:
                     # Get song URL from metadata
-                    # This assumes we have access to playlist info
                     url = f"https://youtube.com/watch?v={song_id}"
                     
                     filepath = self.downloader.download_song(url, song_id)
-                    job.filepath = filepath
-                    job.status = 'analyzing'
+                    
+                    with self.jobs_lock:
+                        if song_id in self.jobs:
+                            self.jobs[song_id].filepath = filepath
+                            self.jobs[song_id].status = 'analyzing'
                     
                     # Queue for analysis
                     self.job_queue.put((priority, song_id, 'analyze'))
                     
                 except Exception as e:
-                    job.status = 'failed'
-                    job.error = str(e)
+                    with self.jobs_lock:
+                        if song_id in self.jobs:
+                            self.jobs[song_id].status = 'failed'
+                            self.jobs[song_id].error = str(e)
                     print(f"❌ Prefetch download failed for {song_id}: {e}")
                 
             except queue.Empty:
@@ -196,42 +203,61 @@ class Prefetcher:
                 print(f"❌ Prefetch download error: {e}")
     
     def _analyze_loop(self):
-        """Analysis worker loop"""
+        """Analysis worker loop - FIXED (Duplicate removed, lock added)"""
         while self.is_running:
             try:
+                jobs_processed = 0
+                
+                # Copy jobs safely to iterate without lock blocking download thread too long
+                with self.jobs_lock:
+                    jobs_to_check = list(self.jobs.values())
+                
                 # Find jobs needing analysis
-                for song_id, job in list(self.jobs.items()):
-                    if job.status != 'analyzing':
+                for job in jobs_to_check:
+                    # Double check status safely
+                    with self.jobs_lock:
+                        if job.song_id not in self.jobs:
+                            continue
+                        current_status = self.jobs[job.song_id].status
+                        
+                    if current_status != 'analyzing' or not job.filepath:
                         continue
                     
-                    if not job.filepath:
-                        continue
+                    jobs_processed += 1
                     
                     try:
                         # Check cache first
-                        cached = self.cache.get('metadata', song_id)
+                        cached = self.cache.get('metadata', job.song_id)
                         if cached:
                             import json
                             with open(cached, 'r') as f:
-                                job.analysis = json.load(f)
-                            job.status = 'ready'
+                                analysis_data = json.load(f)
+                            with self.jobs_lock:
+                                if job.song_id in self.jobs:
+                                    self.jobs[job.song_id].analysis = analysis_data
+                                    self.jobs[job.song_id].status = 'ready'
                             continue
                         
                         # Run analysis
                         analysis = self.analyzer.analyze_track(
-                            job.filepath, song_id
+                            job.filepath, job.song_id
                         )
-                        job.analysis = analysis
-                        job.status = 'ready'
                         
-                        print(f"✅ Prefetched: {song_id}")
+                        with self.jobs_lock:
+                            if job.song_id in self.jobs:
+                                self.jobs[job.song_id].analysis = analysis
+                                self.jobs[job.song_id].status = 'ready'
+                        
+                        print(f"✅ Prefetched: {job.song_id}")
                         
                     except Exception as e:
-                        job.status = 'failed'
-                        job.error = str(e)
-                        print(f"❌ Prefetch analysis failed for {song_id}: {e}")
+                        with self.jobs_lock:
+                            if job.song_id in self.jobs:
+                                self.jobs[job.song_id].status = 'failed'
+                                self.jobs[job.song_id].error = str(e)
+                        print(f"❌ Prefetch analysis failed for {job.song_id}: {e}")
                 
-                time.sleep(1)
+                time.sleep(1 if jobs_processed == 0 else 0.1)
                 
             except Exception as e:
                 print(f"❌ Prefetch analyze error: {e}")
@@ -244,81 +270,37 @@ class Prefetcher:
         
         to_remove = []
         
-        for song_id, job in self.jobs.items():
-            if song_id == self.current_song_id:
-                continue
-            
-            age = current_time - job.requested_at
-            
-            if age > max_age and job.status in ['ready', 'failed']:
-                to_remove.append(song_id)
+        with self.jobs_lock:
+            for song_id, job in self.jobs.items():
+                if song_id == self.current_song_id:
+                    continue
                 
-                # Delete audio file to save space
-                if job.filepath and job.status == 'ready':
-                    try:
-                        self.cache.delete('audio', song_id)
-                    except:
-                        pass
-        
-        for song_id in to_remove:
-            del self.jobs[song_id]
+                age = current_time - job.requested_at
+                
+                if age > max_age and job.status in ['ready', 'failed']:
+                    to_remove.append(song_id)
+                    
+                    # Delete audio file to save space
+                    if job.filepath and job.status == 'ready':
+                        try:
+                            self.cache.delete('audio', song_id)
+                        except:
+                            pass
+            
+            for song_id in to_remove:
+                del self.jobs[song_id]
     
     def get_stats(self) -> dict:
         """Get prefetcher statistics"""
         status_counts = {}
-        for job in self.jobs.values():
-            status_counts[job.status] = status_counts.get(job.status, 0) + 1
-        
+        with self.jobs_lock:
+            for job in self.jobs.values():
+                status_counts[job.status] = status_counts.get(job.status, 0) + 1
+            total_jobs = len(self.jobs)
+            
         return {
-            'total_jobs': len(self.jobs),
+            'total_jobs': total_jobs,
             'queue_size': self.job_queue.qsize(),
             'status_counts': status_counts,
             'lookahead': self.lookahead,
         }
-
-    def _analyze_loop(self):
-        """Analysis worker loop - FIXED"""
-        while self.is_running:
-            try:
-                jobs_processed = 0
-                
-                # Find jobs needing analysis
-                for song_id, job in list(self.jobs.items()):
-                    if job.status != 'analyzing':
-                        continue
-                    
-                    if not job.filepath:
-                        continue
-                    
-                    jobs_processed += 1
-                    
-                    try:
-                        # Check cache first
-                        cached = self.cache.get('metadata', song_id)
-                        if cached:
-                            import json
-                            with open(cached, 'r') as f:
-                                job.analysis = json.load(f)
-                            job.status = 'ready'
-                            continue
-                        
-                        # Run analysis
-                        analysis = self.analyzer.analyze_track(
-                            job.filepath, song_id
-                        )
-                        job.analysis = analysis
-                        job.status = 'ready'
-                        
-                        print(f"✅ Prefetched: {song_id}")
-                        
-                    except Exception as e:
-                        job.status = 'failed'
-                        job.error = str(e)
-                        print(f"❌ Prefetch analysis failed for {song_id}: {e}")
-                
-                # FIXED: Sleep even if no jobs to prevent busy spinning
-                time.sleep(1 if jobs_processed == 0 else 0.1)
-                
-            except Exception as e:
-                print(f"❌ Prefetch analyze error: {e}")
-                time.sleep(1)
