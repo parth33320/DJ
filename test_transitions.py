@@ -29,71 +29,102 @@ def get_smart_slice_timestamp(filepath):
     except: return 45.0
 
 def test_random_transitions():
-    print("🔧 Booting AI DJ Brain (Penalty Box + Local KB Logic)...")
+    print("🔧 Booting AI DJ Brain (Active Remediation Engine)...")
     app = DJApp(); app.playlist = app.downloader.get_playlist_metadata(app.config['youtube']['playlist_url'])
     blacklist = set(load_json_safe('data/logs/blacklist.json', []))
     session_skips = set(); is_sleeping = False
 
     while True:
-        # 1. PENALTY BOX CHECK
         state = load_json_safe('data/logs/system_state.json', {})
-        if state.get('penalty_until', 0) > time.time():
-            if not state.get('homework_completed', False):
-                query = state.get('homework_query', '')
-                kb = load_json_safe('data/logs/dj_knowledge_base.json', [])
-                matches = [r['technique_name'] for r in kb if any(w in (r['technique_name']+r['suitable_for']).lower() for w in query.lower().split() if len(w)>3)]
-                print(f"🛑 PENALTY BOX: Learning '{query}'. Matches found: {matches}")
-                state['homework_completed'] = True; save_json_safe('data/logs/system_state.json', state)
-            time.sleep(60); continue
-
-        # 2. QUEUE CHECK
-        unrated = get_unrated_count()
-        if unrated >= MAX_UNRATED_QUEUE:
-            if not is_sleeping: print(f"⏸️ Queue full ({unrated}/{MAX_UNRATED_QUEUE}). Paused."); is_sleeping = True
-            time.sleep(10); continue
-        is_sleeping = False
-
-        # 3. ACQUISITION
-        drive_index = load_json_safe('data/logs/drive_index.json', {})
-        candidates = [s for s in app.playlist if s['id'] not in blacklist and s['id'] not in session_skips]
+        mode = state.get('mode', 'NORMAL')
         ready = []
-        while len(ready) < 2 and candidates:
-            uncharted = [s for s in candidates if s['id'] not in drive_index]
-            chosen = random.choice(uncharted) if uncharted else random.choice(candidates)
-            candidates = [c for c in candidates if c['id'] != chosen['id']]
-            
-            sid = chosen['id']; snip_id = f"{sid}_snip"; snip_p = os.path.join(app.config['paths']['audio_cache'], f"{snip_id}.mp3")
-            if os.path.exists(snip_p): ready.append({'path': snip_p, 'info': chosen}); continue
-            
-            raw_p = os.path.join(app.config['paths']['audio_cache'], f"{sid}.mp3")
-            if sid in drive_index: 
-                app.drive_manager.download_file(app.downloader._get_account_for_song(sid), drive_index[sid], raw_p)
-            elif app.downloader.download_song(chosen['url'], sid): raw_p = os.path.join(app.config['paths']['audio_cache'], f"{sid}.mp3")
-            else: session_skips.add(sid); continue
 
-            # Slice & Process
-            start = get_smart_slice_timestamp(raw_p)
-            subprocess.run(['ffmpeg', '-y', '-i', raw_p, '-ss', str(start), '-t', '90', '-c:a', 'libmp3lame', '-q:a', '2', snip_p], capture_output=True)
-            if sid not in drive_index:
-                did = app.downloader.upload_to_drive(sid, app.drive_manager)
-                if did: drive_index[sid] = did; save_json_safe('data/logs/drive_index.json', drive_index)
-            elif os.path.exists(raw_p): os.remove(raw_p)
-            ready.append({'path': snip_p, 'info': chosen})
+        # 1. REMEDIATION BRANCH (SAME SONGS, NEW KNOWLEDGE)
+        if mode == 'REMEDIATION':
+            tech = state.get('failed_technique', 'cut')
+            print(f"📚 STUDY MODE: Fetching tutorial for {tech}...")
+            
+            # Call knowledge agent to fetch real steps
+            subprocess.run([sys.executable, 'knowledge_agent.py', state['homework_query'], tech])
+            
+            f_id = state.get('failed_from_id')
+            t_id = state.get('failed_to_id')
+            
+            # Find the exact same songs in playlist
+            c_i = next((s for s in app.playlist if s['id'] == f_id), None)
+            n_i = next((s for s in app.playlist if s['id'] == t_id), None)
+            
+            if c_i and n_i:
+                # Load the snips directly (they already exist from last failure)
+                ready = [
+                    {'path': os.path.join(app.config['paths']['audio_cache'], f"{c_i['id']}_snip.mp3"), 'info': c_i},
+                    {'path': os.path.join(app.config['paths']['audio_cache'], f"{n_i['id']}_snip.mp3"), 'info': n_i}
+                ]
+                print(f"🔄 RETRY MODE: Same songs, new brain! ({c_i['title']} -> {n_i['title']})")
+            
+            # Reset state immediately so we don't loop forever
+            state['mode'] = 'NORMAL'
+            save_json_safe('data/logs/system_state.json', state)
+
+        # 2. NORMAL ACQUISITION BRANCH
+        else:
+            unrated = get_unrated_count()
+            if unrated >= MAX_UNRATED_QUEUE:
+                if not is_sleeping: print(f"⏸️ Queue full ({unrated}/{MAX_UNRATED_QUEUE}). Paused."); is_sleeping = True
+                time.sleep(10); continue
+            is_sleeping = False
+
+            drive_index = load_json_safe('data/logs/drive_index.json', {})
+            candidates = [s for s in app.playlist if s['id'] not in blacklist and s['id'] not in session_skips]
+            
+            while len(ready) < 2 and candidates:
+                uncharted = [s for s in candidates if s['id'] not in drive_index]
+                chosen = random.choice(uncharted) if uncharted else random.choice(candidates)
+                candidates = [c for c in candidates if c['id'] != chosen['id']]
+                
+                sid = chosen['id']; snip_id = f"{sid}_snip"; snip_p = os.path.join(app.config['paths']['audio_cache'], f"{snip_id}.mp3")
+                if os.path.exists(snip_p): ready.append({'path': snip_p, 'info': chosen}); continue
+                
+                raw_p = os.path.join(app.config['paths']['audio_cache'], f"{sid}.mp3")
+                if sid in drive_index: 
+                    app.drive_manager.download_file(app.downloader._get_account_for_song(sid), drive_index[sid], raw_p)
+                elif app.downloader.download_song(chosen['url'], sid): raw_p = os.path.join(app.config['paths']['audio_cache'], f"{sid}.mp3")
+                else: session_skips.add(sid); continue
+
+                start = get_smart_slice_timestamp(raw_p)
+                subprocess.run(['ffmpeg', '-y', '-i', raw_p, '-ss', str(start), '-t', '90', '-c:a', 'libmp3lame', '-q:a', '2', snip_p], capture_output=True)
+                if sid not in drive_index:
+                    did = app.downloader.upload_to_drive(sid, app.drive_manager)
+                    if did: drive_index[sid] = did; save_json_safe('data/logs/drive_index.json', drive_index)
+                elif os.path.exists(raw_p): os.remove(raw_p)
+                ready.append({'path': snip_p, 'info': chosen})
 
         if len(ready) < 2: continue
         
-        # 4. DECIDE & MIX
+        # 3. DECIDE & MIX (Both modes hit this!)
         c_i, n_i = ready[0]['info'], ready[1]['info']
         c_a = app.analyzer.analyze_track(ready[0]['path'], f"{c_i['id']}_snip")
         n_a = app.analyzer.analyze_track(ready[1]['path'], f"{n_i['id']}_snip")
-        tech, params = app.transition_decider.decide_transition(c_i['title'], n_i['title'], c_a, n_a)
+        
+        # Force technique if remediation, else let it decide
+        if mode == 'REMEDIATION': tech = state.get('failed_technique', 'cut_transition'); params = {}
+        else: tech, params = app.transition_decider.decide_transition(c_i['title'], n_i['title'], c_a, n_a)
         
         out_p = app.transition_engine.generate_transition_mix(f"{c_i['id']}_snip", f"{n_i['id']}_snip", tech, params, c_a, n_a)
         if out_p:
             d_l = app.drive_manager.upload_transition(out_p)
             links = load_json_safe('data/logs/transition_links.json', [])
-            links.append({'from_title': c_i['title'], 'to_title': n_i['title'], 'technique': tech, 'drive_link': d_l, 'local_path': out_p, 'timestamp': time.time(), 'rating': None})
+            
+            # 🚨 CAVE-MAN FIX: Save from_id and to_id here so UI can access them!
+            links.append({
+                'from_id': c_i['id'], 'to_id': n_i['id'],
+                'from_title': c_i['title'], 'to_title': n_i['title'], 
+                'technique': tech, 'drive_link': d_l, 
+                'local_path': out_p, 'timestamp': time.time(), 'rating': None
+            })
             save_json_safe('data/logs/transition_links.json', links)
-            send_notification(f"🎧 Mix Ready: {tech}\n{MOBILE_UI_URL}")
+            
+            mix_type = "🛠️ REMEDIATION MIX" if mode == 'REMEDIATION' else "🎧 NEW MIX"
+            send_notification(f"{mix_type} Ready: {tech}\n{MOBILE_UI_URL}")
 
 if __name__ == "__main__": test_random_transitions()
