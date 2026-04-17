@@ -1,6 +1,6 @@
 """
 PRO AI DJ APP - Main Entry Point
-FIXED VERSION - All imports and loops complete
+FIXED VERSION - All imports, Tree of Thoughts, and Headless Fixes integrated
 """
 
 import os
@@ -105,8 +105,8 @@ def print_banner():
     print(f"""
 {Fore.CYAN}
 ╔═══════════════════════════════════════════════════════════╗
-║              PRO AI DJ APP v2.2 - FIXED                   ║
-║   Automated DJ • 24/7 • All Genres • Multi-Platform       ║
+║            PRO AI DJ APP v2.3 - TOT EDITION               ║
+║    Automated DJ • 24/7 • All Genres • Multi-Platform      ║
 ╚═══════════════════════════════════════════════════════════╝
 {Style.RESET_ALL}""")
 
@@ -152,13 +152,13 @@ class DJApp:
         # ═══════════════════════════════════════════════════════
         
         self.analyzer = AudioAnalyzer(self.config)
-        self.phrase_detector = PhraseDetector(self.config)  # FIXED: Was missing
-        self.vocal_analyzer = VocalAnalyzer(self.config)  # FIXED: Was missing
+        self.phrase_detector = PhraseDetector(self.config)  
+        self.vocal_analyzer = VocalAnalyzer(self.config)  
         self.entry_finder = EntryPointFinder(self.config)
         self.compatibility_scorer = CompatibilityScorer(self.config)
         
         # ═══════════════════════════════════════════════════════
-        # AI AGENTS (initialize here, not in start_djing)
+        # AI AGENTS
         # ═══════════════════════════════════════════════════════
         self.selector = SelectorAgent(self.config)
         self.transition_decider = TransitionAgent(self.config)
@@ -387,9 +387,6 @@ class DJApp:
             
             self.metadata_cache[song_id] = analysis
             
-            # Delete audio to save space (optional)
-            # self.downloader.delete_audio(song_id)
-            
             print(f"   ✅ Processed: {song['title'][:40]}")
             
         except Exception as e:
@@ -398,7 +395,7 @@ class DJApp:
             traceback.print_exc()
     
     def start_djing(self):
-        """Main DJ loop - FIXED: removed duplicate definition"""
+        """Main DJ loop - FIXED"""
         self.is_playing = True
         
         # Signal handlers
@@ -480,11 +477,21 @@ class DJApp:
         
         next_analysis = self.metadata_cache.get(next_song_id, {})
         
-        # Decide transition
-        technique = self.transition_decider.decide(
-            current, next_analysis, compatibility
+        # ────────────────────────────────────────────────────────
+        # 🤖 DECIDE TRANSITION (Tree of Thoughts Integration)
+        # ────────────────────────────────────────────────────────
+        decide_result = self.transition_decider.decide_transition(
+            current.get('title', 'Unknown'), 
+            next_analysis.get('title', 'Unknown'), 
+            current, 
+            next_analysis
         )
-        params = self.transition_decider.get_params(current, next_analysis, technique)
+        
+        if isinstance(decide_result, tuple):
+            technique, params = decide_result
+        else:
+            technique = decide_result
+            params = {"duration": 16}
         
         print(f"   {Fore.MAGENTA}⏭️  Next: {next_analysis.get('title', 'Unknown')}{Style.RESET_ALL}")
         print(f"   {Fore.YELLOW}🔀 Technique: {technique}{Style.RESET_ALL}")
@@ -503,16 +510,18 @@ class DJApp:
             except:
                 pass
         
-        # Execute transition and get output path
+        # ────────────────────────────────────────────────────────
+        # 🎧 EXECUTE TRANSITION (Headless File Generation Fix)
+        # ────────────────────────────────────────────────────────
         self.update_status(f"transitioning:{current.get('title', '')} -> {next_analysis.get('title', '')}")
         
-        output_path = self.transition_engine.execute(
-            self.current_song,
-            next_song_id,
-            technique,
-            params,
-            current,
-            next_analysis
+        output_path = self.transition_engine.generate_transition_mix(
+            cur_id=self.current_song,
+            nxt_id=next_song_id,
+            technique=technique,
+            params=params,
+            cur_ana=current,
+            nxt_ana=next_analysis
         )
         
         if output_path and os.path.exists(output_path):
@@ -619,21 +628,35 @@ class DJApp:
         # Get compatibility
         compatibility = self.compatibility_scorer.score(current, next_analysis)
         
-        # Decide technique
-        technique = self.transition_decider.decide(current, next_analysis, compatibility)
-        params = self.transition_decider.get_params(current, next_analysis, technique)
+        # ────────────────────────────────────────────────────────
+        # 🤖 DECIDE TRANSITION (Tree of Thoughts Integration)
+        # ────────────────────────────────────────────────────────
+        decide_result = self.transition_decider.decide_transition(
+            current.get('title', 'Unknown'),
+            next_analysis.get('title', 'Unknown'),
+            current,
+            next_analysis
+        )
+        
+        if isinstance(decide_result, tuple):
+            technique, params = decide_result
+        else:
+            technique = decide_result
+            params = {"duration": 16}
         
         print(f"   Technique: {technique}")
         print(f"   Compatibility: {compatibility.get('score', 0):.2f}")
         
-        # Execute
-        output_path = self.transition_engine.execute(
-            song1_id,
-            song2_id,
-            technique,
-            params,
-            current,
-            next_analysis
+        # ────────────────────────────────────────────────────────
+        # 🎧 EXECUTE TRANSITION (Headless File Generation Fix)
+        # ────────────────────────────────────────────────────────
+        output_path = self.transition_engine.generate_transition_mix(
+            cur_id=song1_id,
+            nxt_id=song2_id,
+            technique=technique,
+            params=params,
+            cur_ana=current,
+            nxt_ana=next_analysis
         )
         
         if output_path and os.path.exists(output_path):
