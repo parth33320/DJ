@@ -23,11 +23,13 @@ class PlaylistDownloader:
             'quiet': True,
             'extract_flat': True,
             'skip_download': True,
-            'cookiefile': self.cookie_path,
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             }
         }
+        # Only add cookiefile if it actually has data
+        if os.path.exists(self.cookie_path) and os.path.getsize(self.cookie_path) > 0:
+            ydl_opts['cookiefile'] = self.cookie_path
             
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
