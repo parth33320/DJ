@@ -42,6 +42,9 @@ The system continuously generates experimental transitions. To ensure you only s
 3. Only the **highest scoring** mix is sent to you via **ntfy** for approval.
 4. The remaining 9 are logged for training but kept out of your main queue.
 
+## 📢 Developer Communication
+- **Automatic Notifications**: The AI Agent (Antigravity) will send the latest mobile links to the `ntfy` topic `dj-agent-parth` every time a file is edited. This ensures real-time access to the testing UI without needing to check the terminal.
+
 ## 🛠️ Maintenance & Tools
 
 ### Synchronizing Code

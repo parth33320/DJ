@@ -26,6 +26,9 @@ class TransitionAgent:
             ('tone_play', self._rule_tone_play),
             ('half_time_transition', self._rule_half_time),
             ('double_time_transition', self._rule_double_time),
+            ('wordplay_mashup', self._rule_wordplay_mashup),
+            ('phrasal_interlace', self._rule_cspi),
+            ('semantic_bridge', self._rule_semantic),
             ('novel_hybrid_mutation', self._rule_innovation),
         ]
 
@@ -151,6 +154,11 @@ class TransitionAgent:
                 'note_duration': 60 / current_analysis.get('bpm', 120),
                 'preview_bars': 4,
             },
+            'wordplay_mashup': {
+                'word_repeats': 4,
+                'mashup_bars': 8,
+                'use_stems': True
+            }
         }
 
         return params.get(technique, {})
@@ -259,6 +267,31 @@ class TransitionAgent:
             return 0.95
         return 0.1
 
+    def _rule_wordplay_mashup(self, cur, nxt, compat):
+        """High score if WordplayAgent finds a phonetic link"""
+        # We don't call WordplayAgent here to keep it fast, 
+        # but we check if lyrics exist.
+        if cur.get('lyrics') and nxt.get('lyrics'):
+            return 0.85
+        return 0.1
+
+    def _rule_cspi(self, cur, nxt, compat):
+        """High score for high-energy tracks where manual cutting is impossible"""
+        if cur.get('energy_mean', 0) > 0.7 and nxt.get('energy_mean', 0) > 0.7:
+            return 0.9
+        return 0.2
+
+    def _rule_semantic(self, cur, nxt, compat):
+        """High score if both have lyrics and are in same language"""
+        if cur.get('lyrics') and nxt.get('lyrics'):
+            if cur['lyrics'].get('language') == nxt['lyrics'].get('language'):
+                return 0.88
+        return 0.1
+
     def _rule_innovation(self, cur, nxt, compat):
         """Always give a baseline chance for a novel/random experiment"""
-        return 0.3
+        # Boost if BPMs match well but genres are different
+        if abs(cur.get('bpm', 120) - nxt.get('bpm', 120)) < 2:
+            if cur.get('genre_hint') != nxt.get('genre_hint'):
+                return 0.95
+        return 0.4

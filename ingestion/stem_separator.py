@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 try:
     import torch
 except ImportError:
@@ -17,84 +18,90 @@ class StemSeparator:
         self.device = "cuda" if (False if torch is None else torch.cuda.is_available()) else "cpu"
         print(f"🎵 Stem separator using: {self.device}")
 
-    def separate(self, filepath, song_id, start_time=None):
+    def separate(self, filepath, song_id, start_time=0):
         """
-        Separate song into 4 stems using Demucs
-        Returns dict of stem file paths
+        Offload separation to Google Drive / Colab
+        Uses Round Robin across authenticated accounts
         """
+        import time
         song_stems_dir = os.path.join(self.stems_dir, song_id)
-        
         stems = {
             'vocals': os.path.join(song_stems_dir, 'vocals.wav'),
-            'drums': os.path.join(song_stems_dir, 'drums.wav'),
-            'bass': os.path.join(song_stems_dir, 'bass.wav'),
             'melody': os.path.join(song_stems_dir, 'other.wav'),
         }
         
-        # Check if already separated
         if all(os.path.exists(v) for v in stems.values()):
             return stems
+
+        # 🔄 ROUND ROBIN ACCOUNT SELECTION
+        accounts = [f"account_{i}" for i in range(1, 6)] # 5 accounts detected
+        if not hasattr(self, '_account_idx'): self._account_idx = 0
+        acc_id = accounts[self._account_idx]
+        self._account_idx = (self._account_idx + 1) % len(accounts)
         
-        os.makedirs(song_stems_dir, exist_ok=True)
+        print(f"☁️  OFFLOADING to Drive: {song_id} (using {acc_id})")
         
-        # ✂️ OPTIMIZATION: Trim audio precisely around the transition
-        # If start_time not provided, it defaults to the end-ish
-        if start_time is None:
-            # Default to last 90s for a standard transition
-            start_time = 0 
-            
-        temp_trim = os.path.join(self.cache_dir, f"{song_id}_trimmed.wav")
         try:
-            print(f"   ✂️  Trimming for fast separation starting at {start_time}s...")
+            from utils.drive_manager import DriveManager
+            dm = DriveManager(self.config)
+            
+            # 1. Prepare small trim locally (keep it fast)
+            temp_trim = os.path.join(self.cache_dir, f"{song_id}_trimmed.wav").replace("\\", "/")
             subprocess.run([
-                "ffmpeg", "-y", "-i", filepath, 
+                "ffmpeg", "-y", "-i", filepath.replace("\\", "/"), 
                 "-ss", str(start_time), "-t", "90", 
                 "-ac", "2", "-ar", "44100", temp_trim
             ], check=True, capture_output=True)
-            proc_path = temp_trim
-        except:
-            proc_path = filepath
-
-        print(f"🎚️  Separating stems: {song_id}")
-        
-        # Run Demucs
-        cmd_full = [
-            "python", "-m", "demucs",
-            "--two-stems", "vocals",  # Vocals vs Everything else is faster
-            "-o", self.stems_dir,
-            "--device", self.device,
-            proc_path
-        ]
-        
-        try:
-            subprocess.run(cmd_full, check=True, capture_output=True)
             
-            # Demucs outputs to: stems_dir/htdemucs/song_name/
-            # Rename to our structure
-            demucs_out = os.path.join(
-                self.stems_dir, "htdemucs", 
-                os.path.splitext(os.path.basename(filepath))[0]
-            )
+            # 2. Upload to COLAB_INPUT
+            dm.upload_file(acc_id, temp_trim, "COLAB_INPUT")
+            os.remove(temp_trim)
             
-            stem_map = {
-                'vocals.wav': stems['vocals'],
-                'drums.wav': stems['drums'],
-                'bass.wav': stems['bass'],
-                'other.wav': stems['melody'],
-            }
+            # 3. Wait for Results (COLAB_OUTPUT/song_id/vocals.wav)
+            print(f"⏳ Waiting for Colab GPU to separate {song_id}...")
+            start_wait = time.time()
+            found = False
             
-            for src_name, dst_path in stem_map.items():
-                src = os.path.join(demucs_out, src_name)
-                if os.path.exists(src):
-                    os.rename(src, dst_path)
+            while time.time() - start_wait < 600: # 10 min timeout
+                service = dm.authenticate(acc_id)
+                parent_id = dm.get_folder_id(service, "COLAB_OUTPUT")
+                
+                # Check for the folder song_id
+                q = f"name = '{song_id}' and '{parent_id}' in parents and trashed = false"
+                res = service.files().list(q=q, fields="files(id)").execute()
+                items = res.get('files', [])
+                
+                if items:
+                    folder_id = items[0]['id']
+                    # Check for vocals.wav inside
+                    q2 = f"name = 'vocals.wav' and '{folder_id}' in parents"
+                    res2 = service.files().list(q=q2, fields="files(id)").execute()
                     
-            # Clean up temp trim
-            if os.path.exists(temp_trim): os.remove(temp_trim)
+                    if res2.get('files'):
+                        # Stems are ready!
+                        os.makedirs(song_stems_dir, exist_ok=True)
+                        
+                        # Download all files in that folder
+                        q3 = f"'{folder_id}' in parents"
+                        res3 = service.files().list(q=q3, fields="files(id, name)").execute()
+                        for f in res3.get('files', []):
+                            if 'vocals' in f['name'] and 'no_vocals' not in f['name']:
+                                dm.download_file(acc_id, f['id'], stems['vocals'])
+                            else:
+                                dm.download_file(acc_id, f['id'], stems['melody'])
+                        
+                        found = True
+                        break
+                
+                time.sleep(15) # Watcher loop
             
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Stem separation failed: {e}")
-            if os.path.exists(temp_trim): os.remove(temp_trim)
-            return {k: v if os.path.exists(v) else None 
-                   for k, v in stems.items()}
-        
-        return stems
+            if not found:
+                print(f"❌ Timed out waiting for Colab: {song_id}")
+                return stems # Return partial for fallback
+                
+            print(f"✅ Stems retrieved from Cloud: {song_id}")
+            return stems
+
+        except Exception as e:
+            print(f"❌ Cloud separation failed: {e}")
+            return stems

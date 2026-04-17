@@ -126,10 +126,28 @@ class DJApp:
         
         # Analysis
         self.analyzer = AudioAnalyzer(self.config)
-        self.phrase_detector = PhraseDetector(self.config)
-        self.vocal_analyzer = VocalAnalyzer(self.config)
         self.entry_finder = EntryPointFinder(self.config)
         self.compatibility_scorer = CompatibilityScorer(self.config)
+        
+        self.update_status("idle")
+
+    def update_status(self, status):
+        """Update agent status for mobile workbench and send ntfy if critical"""
+        try:
+            p = os.path.join(self.config['paths']['logs'], 'agent_status.txt')
+            with open(p, 'w') as f:
+                f.write(status)
+            
+            # If me waiting for approval, tell the phone!
+            if status == "WAITING_FOR_APPROVAL":
+                from utils.notifier import send_notification
+                send_notification("🚨 ACTION REQUIRED: Please click ACCEPT ALL on your desktop!", topic='dj-agent-parth')
+        except:
+            pass
+
+    def start_djing(self):
+        """Main DJ loop"""
+        self.is_playing = True
         
         # AI Agents
         self.selector = SelectorAgent(self.config)

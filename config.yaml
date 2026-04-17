@@ -73,6 +73,18 @@ youtube_channels:
     - "https://www.youtube.com/@siangyoo"
     - "https://www.youtube.com/@BestDJTransitions"
 
+colab:
+  links:
+    - "" # Account 1 Link
+    - "" # Account 2 Link
+    - "" # Account 3 Link
+    - "" # Account 4 Link
+    - "" # Account 5 Link
+
+selenium:
+  headless: true
+  update_interval_minutes: 15
+
 # ============================================
 # 🆕 STREAMING - NO OBS NEEDED!
 # ============================================

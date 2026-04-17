@@ -4,6 +4,13 @@ import threading
 import time
 import json
 import socket
+import sys
+
+# Configure UTF-8 for Windows 
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+
 import librosa
 import soundfile as sf
 import requests
@@ -259,6 +266,11 @@ def factory_loop():
                 'audio_ready': True,
                 'last_update': time.time()
             })
+            
+            # 🔔 NOTIFY PHONE
+            from utils.notifier import send_notification
+            msg = f"💿 MIX READY: {cur['title']} -> {nxt['title']} | Listen: https://parth-dj-god-mode-2026.loca.lt"
+            send_notification(msg, topic='dj-agent-parth')
             
             # 🚀 Drive Upload (Optional background)
             try:
