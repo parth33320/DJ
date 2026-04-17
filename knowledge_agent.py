@@ -2,6 +2,8 @@ import sys
 import os
 import json
 import yt_dlp
+import time
+import random
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
 from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage
@@ -88,13 +90,23 @@ class KnowledgeIngestionAgent:
         return all_videos
 
     def fetch_transcript(self, video_id):
-        """Pulls text. Skips if no talking."""
+        """Pulls text. Uses Cookies and Sleep to evade IP bans."""
         try:
-            # THE CORRECT MODERN API CALL
-            ytt_api = YouTubeTranscriptApi()
-            transcript_data = ytt_api.fetch(video_id)
+            # 🛡️ STEALTH MODE 1: Random delay so we don't look like a machine gun
+            sleep_time = random.uniform(3.0, 7.0)
+            print(f"   ⏱️ Sleeping {sleep_time:.1f}s to evade YouTube bot detection...")
+            time.sleep(sleep_time)
+
+            # 🛡️ STEALTH MODE 2: Inject Netscape cookies to prove we are human
+            cookie_path = 'data/yt_cookies.txt'
             
-            # Now it correctly joins the dictionary text keys
+            # Check if cookie exists and use it, otherwise try without
+            if os.path.exists(cookie_path):
+                transcript_data = YouTubeTranscriptApi.get_transcript(video_id, cookies=cookie_path)
+            else:
+                print("   ⚠️ WARNING: yt_cookies.txt not found. Running naked (High risk of IP ban)...")
+                transcript_data = YouTubeTranscriptApi.get_transcript(video_id)
+            
             full_text = " ".join([t['text'] for t in transcript_data])
             
             # THE "NO TALKING" FILTER
