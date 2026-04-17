@@ -46,19 +46,12 @@ class PlaylistDownloader:
                 return json.load(f)
         return []
 
-    def download_song(self, url, song_id, drive_manager=None):
+    def download_song(self, url, song_id, drive_manager=None, timeout=300):
         output_path = os.path.join(self.cache_dir, f"{song_id}.mp3")
         
         # Check if already local
         if os.path.exists(output_path):
             return output_path
-            
-        # Check if it's on Drive (if manager provided)
-        if drive_manager:
-            account_id = self._get_account_for_song(song_id)
-            # This is a bit complex as we'd need to store the Drive ID
-            # For now, let's just download from YouTube if not local
-            pass
 
         ydl_opts = {
             'format': 'bestaudio/best',
@@ -69,10 +62,33 @@ class PlaylistDownloader:
                 'preferredquality': '192',
             }],
             'quiet': True,
+            'no_warnings': True,
+            'socket_timeout': 30,
+            'retries': 3,
         }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-            
+        
+        import signal
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError(f"Download timed out after {timeout}s")
+        
+        # Set timeout (Unix only)
+        try:
+            old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout)
+        except (AttributeError, ValueError):
+            pass  # Windows doesn't have SIGALRM
+        
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+        finally:
+            try:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+            except (AttributeError, ValueError):
+                pass
+        
         return output_path
 
     def _get_account_for_song(self, song_id):
