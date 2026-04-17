@@ -2,124 +2,145 @@ import os
 import sys
 import random
 import json
+import time
 from main import DJApp
+from utils.notifier import send_notification
+
+# ==========================================
+# CONFIGURATION
+# ==========================================
+# 1. Update this to your active localtunnel/ngrok URL
+MOBILE_UI_URL = "https://parth-dj-god-mode-2026.loca.lt"
+
+# 2. Pause generation if you have this many unrated mixes waiting
+MAX_UNRATED_QUEUE = 3  
+
+# 3. Length of audio to extract BEFORE stem separation (saves massive compute)
+SNIPPET_LENGTH = 60    
+
+def load_blacklist():
+    path = 'data/logs/blacklist.json'
+    if os.path.exists(path):
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return set(json.load(f))
+        except:
+            pass
+    return set()
+
+def save_blacklist(blacklist):
+    os.makedirs('data/logs', exist_ok=True)
+    with open('data/logs/blacklist.json', 'w', encoding='utf-8') as f:
+        json.dump(list(blacklist), f)
+
+def get_unrated_count():
+    """Check how many mixes are waiting for your approval on the mobile UI"""
+    try:
+        with open('data/logs/transition_links.json', 'r') as f:
+            links = json.load(f)
+            # Count entries that haven't been rated
+            return len([l for l in links if l.get('rating') is None])
+    except:
+        return 0
+
+def append_to_queue(output_path, drive_link, cur_title, nxt_title, technique):
+    """Safely append to the UI JSON queue without blocking thread"""
+    links_file = 'data/logs/transition_links.json'
+    try:
+        links = []
+        if os.path.exists(links_file):
+            with open(links_file, 'r') as f:
+                links = json.load(f)
+        
+        links.append({
+            'from_title': cur_title,
+            'to_title': nxt_title,
+            'technique': technique,
+            'drive_link': drive_link,
+            'local_path': output_path,
+            'timestamp': time.time(),
+            'tested': False,
+            'rating': None
+        })
+        
+        with open(links_file, 'w') as f:
+            json.dump(links, f, indent=2)
+    except Exception as e:
+        print(f"⚠️ Failed to queue link: {e}")
 
 def test_random_transitions():
-    print("Initialize DJ App Components...")
+    print("🔧 Booting Async Test Queue (Snippet Mode)...")
     app = DJApp()
     
-    # 1. Fetch playlist metadata
     playlist_url = app.config['youtube']['playlist_url']
-    print(f"Fetching playlist from {playlist_url}...")
-    app.playlist = app.downloader.get_playlist_metadata(playlist_url)
+    print(f"📥 Fetching playlist from {playlist_url}...")
     
-    if len(app.playlist) < 2:
-        print("Need at least 2 songs in playlist!")
-        return
-
-    # 2. Pick 2 random songs
-    songs_to_test = random.sample(app.playlist, 2)
-    cur_song_info = songs_to_test[0]
-    nxt_song_info = songs_to_test[1]
-    
-    print(f"\n🎧 Picked two random songs:")
-    print(f"   [A] {cur_song_info['title']}")
-    print(f"   [B] {nxt_song_info['title']}")
-
-    # 3. Download and Analyze if needed
-    for song_info in [cur_song_info, nxt_song_info]:
-        song_id = song_info['id']
-        
-        # Try to load existing
-        if os.path.exists(f'data/metadata/{song_id}.json'):
-            with open(f'data/metadata/{song_id}.json', 'r') as f:
-                app.metadata_cache[song_id] = json.load(f)
-        
-        filepath = os.path.join(app.config['paths']['audio_cache'], f"{song_id}.mp3")
-        
-        if not os.path.exists(filepath):
-            print(f"Downloading {song_info['title']}...")
-            filepath = app.downloader.download_song(song_info['url'], song_id)
-            
-            # ANTI-CRASH FIX: Catch bad downloads!
-            if filepath is None or not os.path.exists(filepath):
-                print(f"❌ Failed to download '{song_info['title']}'. Skipping this transition test.")
-                return
-            
-        if song_id not in app.metadata_cache:
-            print(f"Analyzing {song_info['title']}...")
-            analysis = app.analyzer.analyze_track(filepath, song_id)
-            analysis['title'] = song_info['title']
-            app.metadata_cache[song_id] = analysis
-
-    cur_analysis = app.metadata_cache[cur_song_info['id']]
-    nxt_analysis = app.metadata_cache[nxt_song_info['id']]
-    
-    # 4. Agent decides transition using NEW Tree of Thoughts method
-    decide_result = app.transition_decider.decide_transition(
-        cur_song_info['title'], nxt_song_info['title'], cur_analysis, nxt_analysis
-    )
-    
-    if isinstance(decide_result, tuple):
-        technique, params = decide_result
-    else:
-        technique = decide_result
-        params = {"duration": 16}
-    
-    print(f"\n--- TESTING TRANSITION ---")
-    print(f"From: {cur_song_info['title']} (BPM: {cur_analysis.get('bpm', 'Unknown')})")
-    print(f"To:   {nxt_song_info['title']} (BPM: {nxt_analysis.get('bpm', 'Unknown')})")
-    print(f"Chosen Technique: {technique}")
-    print("Generating audio mix file... Please wait! (No headless hang)")
-    
-    # 5. GENERATE FILE (Fixes headless hang bug)
-    out_path = app.transition_engine.generate_transition_mix(
-        cur_id=cur_song_info['id'],
-        nxt_id=nxt_song_info['id'],
-        technique=technique,
-        params=params,
-        cur_ana=cur_analysis,
-        nxt_ana=nxt_analysis
-    )
-    
-    if out_path:
-        print(f"✅ Mix generated successfully: {out_path}")
-    else:
-        print("❌ Failed to generate mix.")
-        return
-    
-    # 6. Ask for user rating
-    print("\n" + "="*50)
-    rating = input("How would you rate this transition (1-10)? ")
     try:
-        rating = int(rating)
-        update_weights(technique, rating)
-    except Exception as e:
-        print("Invalid rating. Skipping feedback.")
-
-def update_weights(technique, rating):
-    weight_file = 'data/logs/feedback_weights.json'
-    os.makedirs('data/logs', exist_ok=True)
-    
-    weights = {}
-    if os.path.exists(weight_file):
-        with open(weight_file, 'r') as f:
-            try:
-                weights = json.load(f)
-            except Exception:
-                pass
-                
-    # Scale rating 1-10 to an adjustment: 
-    # 5 -> +0.0, 10 -> +0.5, 1 -> -0.4
-    adjustment = (rating - 5) / 10.0
-    
-    current_weight = weights.get(technique, 0)
-    weights[technique] = current_weight + adjustment
-    
-    with open(weight_file, 'w') as f:
-        json.dump(weights, f, indent=4)
+        app.playlist = app.downloader.get_playlist_metadata(playlist_url)
+    except:
+        app.playlist = []
         
-    print(f"Agent learned! Adjusted weight for '{technique}' by {adjustment:+.2f}")
+    if not app.playlist:
+        print("⚠️ Live fetch fail. Me hunt in local cache...")
+        app.playlist = app.downloader.load_cached_playlist()
 
-if __name__ == "__main__":
-    test_random_transitions()
+    if len(app.playlist) < 2:
+        print("❌ Need at least 2 songs in playlist!")
+        return
+
+    blacklist = load_blacklist()
+
+    while True:
+        # ---------------------------------------------------------
+        # 1. ASYNC QUEUE CHECK (Non-Blocking)
+        # ---------------------------------------------------------
+        unrated = get_unrated_count()
+        if unrated >= MAX_UNRATED_QUEUE:
+            print(f"⏸️ Queue full ({unrated}/{MAX_UNRATED_QUEUE} unrated). Sleeping 10s. Go click PASS/FAIL on Mobile UI!")
+            time.sleep(10)
+            continue
+
+        # ---------------------------------------------------------
+        # 2. SELECT SONGS
+        # ---------------------------------------------------------
+        candidates = [s for s in app.playlist if s['id'] not in blacklist]
+        if len(candidates) < 2:
+            print("❌ All songs exhausted or blacklisted. Queue shutting down.")
+            break
+
+        songs_to_test = random.sample(candidates, 2)
+        cur_song_info = songs_to_test[0]
+        nxt_song_info = songs_to_test[1]
+        
+        print(f"\n🎧 ME PICK TWO SONGS:")
+        print(f"   [A] {cur_song_info['title']}")
+        print(f"   [B] {nxt_song_info['title']}")
+
+        skip_loop = False
+        
+        # ---------------------------------------------------------
+        # 3. DOWNLOAD & PRE-CLIP (Speed Hack)
+        # ---------------------------------------------------------
+        for song_info in [cur_song_info, nxt_song_info]:
+            song_id = song_info['id']
+            snip_id = f"{song_id}_snip"  # Create a unique ID for the 60s chunk
+            
+            meta_path = f'data/metadata/{snip_id}.json'
+            if os.path.exists(meta_path):
+                try:
+                    with open(meta_path, 'r', encoding='utf-8') as f:
+                        app.metadata_cache[snip_id] = json.load(f)
+                except Exception as e:
+                    print(f"❌ Corrupt metadata for {snip_id}. Tagging as bad.")
+                    blacklist.add(song_id)
+                    save_blacklist(blacklist)
+                    skip_loop = True
+                    break
+            
+            filepath = os.path.join(app.config['paths']['audio_cache'], f"{song_id}.mp3")
+            snip_path = os.path.join(app.config['paths']['audio_cache'], f"{snip_id}.mp3")
+            
+            if not os.path.exists(snip_path):
+                if not os.path.exists(filepath):
+                    print(f"📥 Downloading {song_info['title']}...")
+                    filepath = app.downloader.download_song(song_info['url'], song_id)
