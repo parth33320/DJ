@@ -1,58 +1,135 @@
+"""
+Local Logic Agent - Runs on YOUR computer with Ollama
+Uses Llama 3.2 or Gemma 2 for creative tasks WITHOUT cloud API costs!
+"""
+
 import os
 import json
-import time
 import requests
-import sys
-
-# Configure UTF-8 for Windows 
-if sys.platform == 'win32':
-    sys.stdout.reconfigure(encoding='utf-8')
-    sys.stderr.reconfigure(encoding='utf-8')
+from typing import Optional
 
 class LocalLogicAgent:
     """
-    LOCAL LOGIC AGENT - Uses local Ollama for code/logic tasks.
-    Ensures zero Gemini credit usage for routine logic requests.
+    Uses Ollama to run local LLM for creative DJ tasks.
+    FREE after initial model download!
+    
+    Install: 
+    1. Download Ollama from ollama.ai
+    2. Run: ollama pull llama3.2
+    3. This agent will use it automatically!
     """
-    def __init__(self, model="llama3"):
-        self.model = model
-        self.url = "http://localhost:11434/api/generate"
-
-    def ask_logic(self, prompt):
-        print(f"🧠 [LOCAL LOGIC] Analyzing: {prompt[:50]}...")
+    
+    def __init__(self, config):
+        self.config = config
+        self.ollama_url = "http://localhost:11434/api/generate"
+        self.model = config.get('ai', {}).get('local_model', 'llama3.2')
+        self.available = self._check_ollama()
+    
+    def _check_ollama(self):
+        """Check if Ollama is running"""
         try:
-            payload = {
-                "model": self.model,
-                "prompt": prompt,
-                "stream": False
-            }
-            response = requests.post(self.url, json=payload)
-            return response.json().get('response', '')
-        except Exception as e:
-            return f"Error connecting to Ollama: {e}"
-
-    def run_task_loop(self):
-        print("🐙 [LOCAL LOGIC AGENT] Listening for task file 'data/logs/logic_task.json'...")
-        task_file = "data/logs/logic_task.json"
-        while True:
-            if os.path.exists(task_file):
-                try:
-                    with open(task_file, 'r', encoding='utf-8') as f:
-                        task = json.load(f)
-                    
-                    print(f"📝 New Task: {task.get('name')}")
-                    result = self.ask_logic(task.get('prompt', ''))
-                    
-                    with open(task_file.replace('.json', '_result.json'), 'w', encoding='utf-8') as f:
-                        json.dump({"result": result, "time": time.time()}, f)
-                    
-                    os.remove(task_file)
-                    print("✅ Task complete.")
-                except Exception as e:
-                    print(f"❌ Task Error: {e}")
+            response = requests.get("http://localhost:11434/api/tags", timeout=2)
+            if response.status_code == 200:
+                print("✅ Ollama detected! Local AI ready.")
+                return True
+        except:
+            pass
+        print("⚠️ Ollama not running. Install from ollama.ai for free local AI!")
+        return False
+    
+    def _query(self, prompt: str, max_tokens: int = 200) -> Optional[str]:
+        """Query local Ollama model"""
+        if not self.available:
+            return None
+        
+        try:
+            response = requests.post(
+                self.ollama_url,
+                json={
+                    "model": self.model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "num_predict": max_tokens,
+                        "temperature": 0.7,
+                    }
+                },
+                timeout=30
+            )
             
-            time.sleep(5)
+            if response.status_code == 200:
+                return response.json().get('response', '')
+        except Exception as e:
+            print(f"⚠️ Ollama query failed: {e}")
+        
+        return None
+    
+    def find_wordplay_connection(self, lyrics_a: str, lyrics_b: str, title_a: str, title_b: str) -> Optional[dict]:
+        """
+        Find creative wordplay connection between two songs.
+        This is where local AI shines - creative language tasks!
+        """
+        prompt = f"""You are a creative DJ finding wordplay connections between songs.
 
-if __name__ == "__main__":
-    agent = LocalLogicAgent()
-    agent.run_task_loop()
+Song A: "{title_a}"
+Lyrics snippet: {lyrics_a[:500]}
+
+Song B: "{title_b}"  
+Lyrics snippet: {lyrics_b[:500]}
+
+Find a word, phrase, or sound that appears in BOTH songs that could create a smooth DJ transition.
+Look for:
+- Same words
+- Rhyming words
+- Similar sounds (phonetic matches)
+- Thematic connections
+
+Reply in JSON format only:
+{{"found": true/false, "word_a": "word from song A", "word_b": "word from song B", "type": "exact/rhyme/phonetic/thematic", "explanation": "brief explanation"}}
+"""
+        
+        result = self._query(prompt, max_tokens=150)
+        
+        if result:
+            try:
+                # Extract JSON from response
+                import re
+                json_match = re.search(r'\{.*\}', result, re.DOTALL)
+                if json_match:
+                    return json.loads(json_match.group())
+            except:
+                pass
+        
+        return None
+    
+    def suggest_creative_transition(self, song_a: dict, song_b: dict) -> Optional[str]:
+        """
+        Suggest a creative transition when standard rules don't work.
+        """
+        prompt = f"""You are a professional DJ. Suggest ONE creative transition technique.
+
+Song A: {song_a.get('title', 'Unknown')}
+- BPM: {song_a.get('bpm', 'Unknown')}
+- Key: {song_a.get('camelot', 'Unknown')}
+- Energy: {song_a.get('energy_mean', 'Unknown')}
+
+Song B: {song_b.get('title', 'Unknown')}
+- BPM: {song_b.get('bpm', 'Unknown')}
+- Key: {song_b.get('camelot', 'Unknown')}
+- Energy: {song_b.get('energy_mean', 'Unknown')}
+
+Choose ONE technique from: beatmatch_crossfade, echo_out, filter_sweep, reverb_wash, spinback, cut_transition, loop_roll, stutter_glitch
+
+Reply with just the technique name, nothing else.
+"""
+        
+        result = self._query(prompt, max_tokens=20)
+        
+        if result:
+            result = result.strip().lower().replace(' ', '_')
+            valid = ['beatmatch_crossfade', 'echo_out', 'filter_sweep', 'reverb_wash', 
+                     'spinback', 'cut_transition', 'loop_roll', 'stutter_glitch']
+            if result in valid:
+                return result
+        
+        return None
