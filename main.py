@@ -1,4 +1,3 @@
-
 """
 PRO AI DJ APP - Main Entry Point
 FIXED VERSION - All imports and loops complete
@@ -16,6 +15,7 @@ import yaml
 import time
 import threading
 import signal
+import json
 from colorama import init, Fore, Style
 init()
 
@@ -95,6 +95,7 @@ def create_directories(config):
         'data/sandbox',
         'data/library',
         'data/recordings',
+        'data/transitions',  # Added for transition output
     ]
     for d in dirs:
         os.makedirs(d, exist_ok=True)
@@ -104,7 +105,7 @@ def print_banner():
     print(f"""
 {Fore.CYAN}
 ╔═══════════════════════════════════════════════════════════╗
-║              PRO AI DJ APP v2.1 - FIXED                   ║
+║              PRO AI DJ APP v2.2 - FIXED                   ║
 ║   Automated DJ • 24/7 • All Genres • Multi-Platform       ║
 ╚═══════════════════════════════════════════════════════════╝
 {Style.RESET_ALL}""")
@@ -151,42 +152,13 @@ class DJApp:
         # ═══════════════════════════════════════════════════════
         
         self.analyzer = AudioAnalyzer(self.config)
+        self.phrase_detector = PhraseDetector(self.config)  # FIXED: Was missing
+        self.vocal_analyzer = VocalAnalyzer(self.config)  # FIXED: Was missing
         self.entry_finder = EntryPointFinder(self.config)
         self.compatibility_scorer = CompatibilityScorer(self.config)
         
         # ═══════════════════════════════════════════════════════
-        # STATE
-        # ═══════════════════════════════════════════════════════
-        self.playlist = []
-        self.metadata_cache = {}
-        self.is_playing = False
-        self.current_song = None
-        self.next_song = None
-        self.mode = "auto"
-        self.skip_requested = False
-        
-        self.update_status("idle")
-
-    def update_status(self, status):
-        """Update agent status for mobile workbench and send ntfy if critical"""
-        try:
-            p = os.path.join(self.config['paths']['logs'], 'agent_status.txt')
-            with open(p, 'w') as f:
-                f.write(status)
-            
-            # If me waiting for approval, tell the phone!
-            if status == "WAITING_FOR_APPROVAL":
-                from utils.notifier import send_notification
-                send_notification("🚨 ACTION REQUIRED: Please click ACCEPT ALL on your desktop!", topic='dj-agent-parth')
-        except:
-            pass
-
-    def start_djing(self):
-        """Main DJ loop"""
-        self.is_playing = True
-        
-        # ═══════════════════════════════════════════════════════
-        # AI AGENTS
+        # AI AGENTS (initialize here, not in start_djing)
         # ═══════════════════════════════════════════════════════
         self.selector = SelectorAgent(self.config)
         self.transition_decider = TransitionAgent(self.config)
@@ -197,18 +169,19 @@ class DJApp:
         # ═══════════════════════════════════════════════════════
         # ENGINES
         # ═══════════════════════════════════════════════════════
-        
         self.transition_engine = MasterTransitionEngine(self.config)
         
         if OBSBridge:
-            self.obs_bridge = OBSBridge(self.config)
+            try:
+                self.obs_bridge = OBSBridge(self.config)
+            except:
+                self.obs_bridge = None
         else:
             self.obs_bridge = None
         
         # ═══════════════════════════════════════════════════════
         # DRIVE MANAGER
         # ═══════════════════════════════════════════════════════
-        
         if DriveManager:
             try:
                 self.drive_manager = DriveManager(self.config)
@@ -220,7 +193,6 @@ class DJApp:
         # ═══════════════════════════════════════════════════════
         # STREAMING
         # ═══════════════════════════════════════════════════════
-        
         self.streamer = None
         self.streaming_enabled = False
         
@@ -229,20 +201,59 @@ class DJApp:
             if streaming_cfg.get('enabled', False):
                 self._init_streaming()
         
+        # ═══════════════════════════════════════════════════════
+        # STATE
+        # ═══════════════════════════════════════════════════════
+        self.playlist = []
+        self.metadata_cache = {}
+        self.is_playing = False
+        self.current_song = None
+        self.next_song = None
+        self.mode = "auto"
         self.skip_requested = False
+        self.transition_history = []
         
-        # ═══════════════════════════════════════════════════════
-        # SIGNAL HANDLERS
-        # ═══════════════════════════════════════════════════════
+        # Load existing metadata cache
+        self._load_metadata_cache()
         
-        try:
-            signal.signal(signal.SIGINT, self._signal_handler)
-            signal.signal(signal.SIGTERM, self._signal_handler)
-        except ValueError:
-            pass  # Not in main thread
-        
+        self.update_status("idle")
         print(f"{Fore.GREEN}✅ All components initialized{Style.RESET_ALL}")
-    
+
+    def _load_metadata_cache(self):
+        """Load all existing metadata from disk"""
+        meta_dir = self.config['paths']['metadata']
+        if os.path.exists(meta_dir):
+            for filename in os.listdir(meta_dir):
+                if filename.endswith('.json'):
+                    try:
+                        filepath = os.path.join(meta_dir, filename)
+                        with open(filepath, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                            song_id = filename.replace('.json', '')
+                            self.metadata_cache[song_id] = data
+                    except Exception as e:
+                        print(f"{Fore.YELLOW}⚠️ Failed to load {filename}: {e}{Style.RESET_ALL}")
+        
+        if self.metadata_cache:
+            print(f"{Fore.GREEN}📂 Loaded {len(self.metadata_cache)} songs from cache{Style.RESET_ALL}")
+
+    def update_status(self, status):
+        """Update agent status for mobile workbench and send ntfy if critical"""
+        try:
+            p = os.path.join(self.config['paths']['logs'], 'agent_status.txt')
+            with open(p, 'w') as f:
+                f.write(status)
+            
+            # If waiting for approval, notify phone
+            if status == "WAITING_FOR_APPROVAL":
+                try:
+                    from utils.notifier import send_notification
+                    send_notification("🚨 ACTION REQUIRED: Please click ACCEPT ALL on your desktop!", topic='dj-agent-parth')
+                except:
+                    pass
+        except:
+            pass
+
     def _init_streaming(self):
         """Initialize streaming"""
         try:
@@ -337,46 +348,65 @@ class DJApp:
             # Check cache first
             meta_path = os.path.join(self.config['paths']['metadata'], f"{song_id}.json")
             if os.path.exists(meta_path):
-                import json
-                with open(meta_path, 'r') as f:
+                with open(meta_path, 'r', encoding='utf-8') as f:
                     self.metadata_cache[song_id] = json.load(f)
                 print(f"   ✅ Cached: {song['title'][:40]}")
                 return
             
             # Download
             filepath = self.downloader.download_song(song['url'], song_id)
+            if not filepath or not os.path.exists(filepath):
+                print(f"   ❌ Download failed: {song['title'][:40]}")
+                return
             
             # Analyze
             analysis = self.analyzer.analyze_track(filepath, song_id)
             analysis['title'] = song['title']
+            analysis['url'] = song.get('url', '')
+            analysis['id'] = song_id
             
             # Phrases
             try:
                 phrases = self.phrase_detector.detect_phrases(filepath, song_id)
                 analysis['phrases'] = phrases
-            except:
-                pass
+            except Exception as e:
+                print(f"   ⚠️ Phrase detection failed: {e}")
+                analysis['phrases'] = []
             
             # Entry points
             try:
                 entry_points = self.entry_finder.find_entry_points(filepath, analysis, song_id)
                 analysis['entry_points'] = entry_points
-            except:
-                pass
+            except Exception as e:
+                print(f"   ⚠️ Entry point detection failed: {e}")
+                analysis['entry_points'] = []
+            
+            # Save metadata
+            with open(meta_path, 'w', encoding='utf-8') as f:
+                json.dump(analysis, f, indent=2)
             
             self.metadata_cache[song_id] = analysis
             
-            # Delete audio to save space
-            self.downloader.delete_audio(song_id)
+            # Delete audio to save space (optional)
+            # self.downloader.delete_audio(song_id)
             
             print(f"   ✅ Processed: {song['title'][:40]}")
             
         except Exception as e:
             print(f"{Fore.RED}❌ Error processing {song.get('title', 'unknown')}: {e}{Style.RESET_ALL}")
+            import traceback
+            traceback.print_exc()
     
     def start_djing(self):
-        """Main DJ loop"""
+        """Main DJ loop - FIXED: removed duplicate definition"""
         self.is_playing = True
+        
+        # Signal handlers
+        try:
+            signal.signal(signal.SIGINT, self._signal_handler)
+            signal.signal(signal.SIGTERM, self._signal_handler)
+        except ValueError:
+            pass  # Not in main thread
         
         # Start services
         if self.audio_engine:
@@ -386,7 +416,10 @@ class DJApp:
             self.streamer.start()
         
         if self.obs_bridge:
-            self.obs_bridge.connect()
+            try:
+                self.obs_bridge.connect()
+            except:
+                pass
         
         # Background threads
         threading.Thread(target=self._playlist_watch_loop, daemon=True).start()
@@ -396,11 +429,15 @@ class DJApp:
         # Pick first song
         if self.metadata_cache:
             self.current_song = self.selector.pick_first_song(self.metadata_cache)
+            if self.current_song:
+                title = self.metadata_cache[self.current_song].get('title', 'Unknown')
+                print(f"{Fore.CYAN}🎵 Starting with: {title}{Style.RESET_ALL}")
         
         # Main loop
         while self.is_playing:
             try:
                 if not self.current_song:
+                    print(f"{Fore.YELLOW}⚠️ No current song, waiting...{Style.RESET_ALL}")
                     time.sleep(1)
                     continue
                 
@@ -409,16 +446,21 @@ class DJApp:
             except KeyboardInterrupt:
                 break
             except Exception as e:
-                print(f"{Fore.RED}❌ Error: {e}{Style.RESET_ALL}")
+                print(f"{Fore.RED}❌ Error in main loop: {e}{Style.RESET_ALL}")
+                import traceback
+                traceback.print_exc()
                 time.sleep(2)
     
     def _play_current_song(self):
         """Play current song with transition to next"""
         if not self.current_song or self.current_song not in self.metadata_cache:
+            self.current_song = self.selector.pick_first_song(self.metadata_cache)
             return
         
         current = self.metadata_cache[self.current_song]
         print(f"\n{Fore.CYAN}▶️  NOW: {current.get('title', 'Unknown')}{Style.RESET_ALL}")
+        
+        self.update_status(f"playing:{current.get('title', 'Unknown')}")
         
         # Pick next song
         next_song_id, compatibility = self.selector.pick_next_song(
@@ -426,8 +468,15 @@ class DJApp:
         )
         
         if not next_song_id:
-            time.sleep(5)
-            return
+            print(f"{Fore.YELLOW}⚠️ No next song found, picking random...{Style.RESET_ALL}")
+            import random
+            available = [k for k in self.metadata_cache.keys() if k != self.current_song]
+            if available:
+                next_song_id = random.choice(available)
+                compatibility = {'score': 0.5, 'reason': 'random selection'}
+            else:
+                time.sleep(5)
+                return
         
         next_analysis = self.metadata_cache.get(next_song_id, {})
         
@@ -437,21 +486,27 @@ class DJApp:
         )
         params = self.transition_decider.get_params(current, next_analysis, technique)
         
-        print(f"   Next: {next_analysis.get('title', 'Unknown')}")
-        print(f"   Technique: {technique}")
+        print(f"   {Fore.MAGENTA}⏭️  Next: {next_analysis.get('title', 'Unknown')}{Style.RESET_ALL}")
+        print(f"   {Fore.YELLOW}🔀 Technique: {technique}{Style.RESET_ALL}")
+        print(f"   {Fore.BLUE}📊 Compatibility: {compatibility.get('score', 0):.2f}{Style.RESET_ALL}")
         
         # Update streaming overlay
         if self.streaming_enabled and self.streamer:
-            self.streamer.update_song(
-                title=current.get('title', ''),
-                bpm=current.get('bpm', 0),
-                key=current.get('camelot', ''),
-                genre=current.get('genre_hint', ''),
-                next_title=next_analysis.get('title', '')
-            )
+            try:
+                self.streamer.update_song(
+                    title=current.get('title', ''),
+                    bpm=current.get('bpm', 0),
+                    key=current.get('camelot', ''),
+                    genre=current.get('genre_hint', ''),
+                    next_title=next_analysis.get('title', '')
+                )
+            except:
+                pass
         
-        # Execute transition
-        self.transition_engine.execute(
+        # Execute transition and get output path
+        self.update_status(f"transitioning:{current.get('title', '')} -> {next_analysis.get('title', '')}")
+        
+        output_path = self.transition_engine.execute(
             self.current_song,
             next_song_id,
             technique,
@@ -460,8 +515,65 @@ class DJApp:
             next_analysis
         )
         
+        if output_path and os.path.exists(output_path):
+            print(f"   {Fore.GREEN}✅ Transition generated: {output_path}{Style.RESET_ALL}")
+            
+            # Upload to Drive for mobile testing
+            if self.drive_manager:
+                try:
+                    drive_link = self.drive_manager.upload_transition(output_path)
+                    if drive_link:
+                        print(f"   {Fore.CYAN}📱 Mobile link: {drive_link}{Style.RESET_ALL}")
+                        self._save_transition_link(output_path, drive_link, current, next_analysis, technique)
+                except Exception as e:
+                    print(f"   {Fore.YELLOW}⚠️ Drive upload failed: {e}{Style.RESET_ALL}")
+            
+            # Record for quality feedback
+            self.transition_history.append({
+                'from': self.current_song,
+                'to': next_song_id,
+                'technique': technique,
+                'output': output_path,
+                'timestamp': time.time()
+            })
+        else:
+            print(f"   {Fore.RED}❌ Transition generation failed{Style.RESET_ALL}")
+        
         # Move to next song
         self.current_song = next_song_id
+        
+        # Small delay before next transition
+        time.sleep(2)
+    
+    def _save_transition_link(self, output_path, drive_link, current, next_analysis, technique):
+        """Save transition link for mobile testing"""
+        try:
+            links_file = os.path.join(self.config['paths']['logs'], 'transition_links.json')
+            
+            links = []
+            if os.path.exists(links_file):
+                with open(links_file, 'r') as f:
+                    links = json.load(f)
+            
+            links.append({
+                'from_title': current.get('title', ''),
+                'to_title': next_analysis.get('title', ''),
+                'technique': technique,
+                'drive_link': drive_link,
+                'local_path': output_path,
+                'timestamp': time.time(),
+                'tested': False,
+                'rating': None
+            })
+            
+            # Keep last 50 transitions
+            links = links[-50:]
+            
+            with open(links_file, 'w') as f:
+                json.dump(links, f, indent=2)
+                
+        except Exception as e:
+            print(f"   ⚠️ Failed to save transition link: {e}")
     
     def _playlist_watch_loop(self):
         """Background loop to watch for playlist changes"""
@@ -480,6 +592,56 @@ class DJApp:
                     )
             except Exception as e:
                 print(f"Playlist watch error: {e}")
+    
+    def test_single_transition(self, song1_id=None, song2_id=None):
+        """Test a single transition between two songs"""
+        import random
+        
+        if not self.metadata_cache:
+            print(f"{Fore.RED}❌ No songs in cache. Run initial_setup first.{Style.RESET_ALL}")
+            return None
+        
+        # Pick random songs if not specified
+        available = list(self.metadata_cache.keys())
+        if not song1_id:
+            song1_id = random.choice(available)
+        if not song2_id:
+            remaining = [s for s in available if s != song1_id]
+            song2_id = random.choice(remaining) if remaining else song1_id
+        
+        current = self.metadata_cache.get(song1_id, {})
+        next_analysis = self.metadata_cache.get(song2_id, {})
+        
+        print(f"\n{Fore.CYAN}🧪 TESTING TRANSITION{Style.RESET_ALL}")
+        print(f"   From: {current.get('title', 'Unknown')}")
+        print(f"   To: {next_analysis.get('title', 'Unknown')}")
+        
+        # Get compatibility
+        compatibility = self.compatibility_scorer.score(current, next_analysis)
+        
+        # Decide technique
+        technique = self.transition_decider.decide(current, next_analysis, compatibility)
+        params = self.transition_decider.get_params(current, next_analysis, technique)
+        
+        print(f"   Technique: {technique}")
+        print(f"   Compatibility: {compatibility.get('score', 0):.2f}")
+        
+        # Execute
+        output_path = self.transition_engine.execute(
+            song1_id,
+            song2_id,
+            technique,
+            params,
+            current,
+            next_analysis
+        )
+        
+        if output_path and os.path.exists(output_path):
+            print(f"{Fore.GREEN}✅ Transition saved: {output_path}{Style.RESET_ALL}")
+            return output_path
+        else:
+            print(f"{Fore.RED}❌ Transition failed{Style.RESET_ALL}")
+            return None
 
 
 def main():
@@ -487,6 +649,26 @@ def main():
     
     try:
         app = DJApp()
+        
+        # Check command line args
+        if len(sys.argv) > 1:
+            if sys.argv[1] == 'setup':
+                app.initial_setup()
+                return
+            elif sys.argv[1] == 'test':
+                # Test single transition
+                result = app.test_single_transition()
+                if result:
+                    print(f"\n{Fore.GREEN}Test complete! File: {result}{Style.RESET_ALL}")
+                return
+            elif sys.argv[1] == 'test-loop':
+                # Test multiple transitions
+                count = int(sys.argv[2]) if len(sys.argv) > 2 else 5
+                for i in range(count):
+                    print(f"\n{'='*50}")
+                    print(f"Test {i+1}/{count}")
+                    app.test_single_transition()
+                return
         
         # Check if we have songs
         if not app.metadata_cache:
