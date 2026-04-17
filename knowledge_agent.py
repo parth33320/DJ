@@ -90,8 +90,12 @@ class KnowledgeIngestionAgent:
     def fetch_transcript(self, video_id):
         """Pulls text. Skips if no talking."""
         try:
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-            full_text = " ".join([t['text'] for t in transcript_list])
+            # THE CORRECT MODERN API CALL
+            ytt_api = YouTubeTranscriptApi()
+            transcript_data = ytt_api.fetch(video_id)
+            
+            # Now it correctly joins the dictionary text keys
+            full_text = " ".join([t['text'] for t in transcript_data])
             
             # THE "NO TALKING" FILTER
             words = full_text.split()
