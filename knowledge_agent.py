@@ -33,7 +33,24 @@ class KnowledgeIngestionAgent:
                     processed.add(entry['id']); save_json_safe('data/logs/processed_videos.json', list(processed))
 
     def _save(self, data, vid):
-        kb = load_json_safe(KB_FILE, []); data['vid'] = vid; kb.append(data)
+        kb = load_json_safe(KB_FILE, [])
+        
+        # 🛡️ ANTI-DUPLICATION LOGIC
+        # Check if we already have this video ID in the library
+        existing_index = next((i for i, item in enumerate(kb) if item.get('vid') == vid), None)
+        
+        data['vid'] = vid
+        data['last_updated'] = time.time()
+        
+        if existing_index is not None:
+            # If it exists, OVERWRITE it with the new, smarter logic
+            print(f"   🔄 Updating existing recipe in library for {vid}...")
+            kb[existing_index] = data
+        else:
+            # If it's new, APPEND it
+            print(f"   📥 Adding new recipe to library for {vid}...")
+            kb.append(data)
+            
         save_json_safe(KB_FILE, kb)
 
 def load_json_safe(fp, default):
