@@ -15,7 +15,7 @@ if sys.platform == 'win32':
 # Automatically pushes code changes to GitHub to save Gemini credits.
 # =================================================================
 
-UPDATE_INTERVAL = 1800 # 30 minutes
+UPDATE_INTERVAL = 60 # 1 minute
 NTFY_TOPIC = "antigravity_dj_updates"
 
 def send_update(msg):
@@ -36,7 +36,7 @@ def run_git_loop():
                 print("📝 Changes detected! Pushing to GitHub...")
                 subprocess.run(["git", "add", "."], check=True)
                 subprocess.run(["git", "commit", "-m", "🦖 Auto-sync: Innovative logic update from Antigravity"], check=True)
-                subprocess.run(["git", "push", "origin", "main"], check=True)
+                subprocess.run(["git", "push", "origin", "master"], check=True)
                 
                 send_update("📦 Code successfully pushed to GitHub! 🦖")
                 print("✅ Push complete.")

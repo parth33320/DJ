@@ -6,6 +6,12 @@ FIXED VERSION - All imports and loops complete
 
 import os
 import sys
+
+# Configure UTF-8 for Windows 
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+
 import yaml
 import time
 import threading
@@ -148,6 +154,17 @@ class DJApp:
         self.entry_finder = EntryPointFinder(self.config)
         self.compatibility_scorer = CompatibilityScorer(self.config)
         
+        # ═══════════════════════════════════════════════════════
+        # STATE
+        # ═══════════════════════════════════════════════════════
+        self.playlist = []
+        self.metadata_cache = {}
+        self.is_playing = False
+        self.current_song = None
+        self.next_song = None
+        self.mode = "auto"
+        self.skip_requested = False
+        
         self.update_status("idle")
 
     def update_status(self, status):
@@ -212,16 +229,6 @@ class DJApp:
             if streaming_cfg.get('enabled', False):
                 self._init_streaming()
         
-        # ═══════════════════════════════════════════════════════
-        # STATE
-        # ═══════════════════════════════════════════════════════
-        
-        self.playlist = []
-        self.metadata_cache = {}
-        self.is_playing = False
-        self.current_song = None
-        self.next_song = None
-        self.mode = "auto"
         self.skip_requested = False
         
         # ═══════════════════════════════════════════════════════

@@ -1,5 +1,12 @@
 import time
 import yaml
+import sys
+
+# Configure UTF-8 for Windows 
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -14,7 +21,7 @@ class LocalUIAgent:
     """
     def __init__(self, target_url="http://localhost:8080"):
         self.target_url = target_url
-        with open('config.yaml', 'r') as f:
+        with open('config.yaml', 'r', encoding='utf-8') as f:
             self.config = yaml.safe_load(f)
             
         self.options = Options()

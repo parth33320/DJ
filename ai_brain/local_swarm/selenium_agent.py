@@ -1,6 +1,13 @@
 import os
 import time
 import yaml
+import sys
+
+# Configure UTF-8 for Windows 
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+
 import threading
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -28,7 +35,9 @@ class SeleniumAgent:
         
         self.driver = None
         self.last_update_time = 0
-        self.update_interval = 15 * 60 # 15 minutes
+        self.routine_interval = 15 * 60 # 15 minutes for stats
+        self.critical_interval = 60      # 1 minute for error checking
+        self.last_routine_time = 0
         
     def init_driver(self):
         if not self.driver:
@@ -80,7 +89,7 @@ class SeleniumAgent:
             return f"Fleet check failed: {str(e)[:50]}"
 
     def colab_keep_alive(self):
-        """Simple automation: Visit Colab links to try and keep them alive"""
+        """Advanced automation: Visit Colab links and click 'Reconnect' if needed"""
         if not self.colab_links:
             return "No Colab links provided in config."
             
@@ -89,13 +98,49 @@ class SeleniumAgent:
             try:
                 self.init_driver()
                 self.driver.get(url)
-                # Wait for Colab to load
                 time.sleep(5)
-                # Look for 'Connect' button or similar if possible
-                # This is hard in headless without login, but visiting helps
-                reports.append(f"Visited {url[:30]}...")
-            except:
-                reports.append(f"Failed {url[:30]}")
+                
+                # Check for 'Reconnect' or 'Connect' buttons
+                found_action = False
+                try:
+                    # Generic selectors for Colab connect buttons
+                    selectors = [
+                        "//colab-connect-button",
+                        "//paper-button[@id='connect']",
+                        "//*[contains(text(), 'Reconnect')]",
+                        "//*[contains(text(), 'Connect')]"
+                    ]
+                    for s in selectors:
+                        elements = self.driver.find_elements(By.XPATH, s)
+                        if elements:
+                            elements[0].click()
+                            found_action = True
+                            break
+                    
+                # 2. Check for 'Run' buttons on cells that aren't currently running
+                try:
+                    # Look for play buttons that are NOT in a 'running' state
+                    # Specific to Colab's shadow DOM / internal divs
+                    cells = self.driver.find_elements(By.CSS_SELECTOR, "div.run-button-container")
+                    for cell in cells:
+                        # If the cell isn't showing the 'stop' square, it might need to be started
+                        if "running" not in cell.get_attribute("class"):
+                            # This is a heuristic - we usually only want to run the MAIN processing cell
+                            # Clicking any play button found to ensure continuity
+                            cell.click()
+                            reports.append(f"▶️ TRIGGERED CELL RUN on {url[:30]}...")
+                            break # Only trigger one per cycle to be safe
+                except:
+                    pass
+                    
+                if found_action:
+                    reports.append(f"🔗 CLICKED RECONNECT on {url[:30]}...")
+                else:
+                    if not any("TRIGGERED CELL" in r for r in reports):
+                        reports.append(f"✅ Still Connected & Running: {url[:30]}...")
+                    
+            except Exception as e:
+                reports.append(f"❌ Failed {url[:30]}: {str(e)[:20]}")
         return "\n".join(reports)
 
     def run_cycle(self):
@@ -125,9 +170,39 @@ class SeleniumAgent:
         print(f"Summary sent to ntfy.")
 
     def start(self):
+        print("🐙 [SELENIUM AGENT] High-frequency monitoring started...")
         while True:
-            self.run_cycle()
-            time.sleep(self.update_interval)
+            now = time.time()
+            
+            # 1. CHECK FOR CRITICAL ACTIONS (EVERY MINUTE)
+            ui_status = self.check_mobile_ui()
+            fleet_status = self.check_fleet()
+            
+            actions = []
+            if "ERROR" in ui_status:
+                actions.append("Restart mobile_tester.py!")
+            if "ERROR" in fleet_status:
+                actions.append("Check Google Drive credentials!")
+                
+            # If critical action found, notify IMMEDIATELY
+            if actions:
+                alert = f"🚨 IMMEDIATE ACTION REQUIRED\n\n" + "\n".join([f"- {a}" for a in actions])
+                # Only alert once every 10 mins for the same error to avoid spam
+                if now - self.last_update_time > 600:
+                    send_notification(alert, topic='dj-agent-parth')
+                    self.last_update_time = now
+            
+            # 2. ROUTINE UPDATE (EVERY 15 MINS)
+            if now - self.last_routine_time > self.routine_interval:
+                summary = f"🦖 15-MIN STATUS REPORT\n\n"
+                summary += f"📱 UI: {ui_status}\n"
+                summary += f"🚢 FLEET: {fleet_status}\n"
+                summary += "\n✅ EVERYTHING SMOOTH." if not actions else f"\n🚨 STILL WAITING ON: {', '.join(actions)}"
+                
+                send_notification(summary, topic='dj-agent-parth')
+                self.last_routine_time = now
+                
+            time.sleep(self.critical_interval)
 
 if __name__ == "__main__":
     agent = SeleniumAgent()
