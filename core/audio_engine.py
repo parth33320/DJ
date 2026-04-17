@@ -1,6 +1,6 @@
 """
 Non-blocking Audio Engine with streaming support
-Fixes: Memory leaks, blocking playback, no pre-buffering
+Fixes: Memory leaks, blocking playback, no pre-buffering, THREAD FIGHTS
 """
 
 import numpy as np
@@ -43,8 +43,10 @@ class AudioEngine:
         self.is_paused = False
         self.volume = 0.85
         
+        # FIXED: Session ID to kill old zombie threads!
+        self.playback_session_id = 0
+        
         # Playback thread
-        self.playback_thread = None
         self.stream = None
         
         # Stats
@@ -59,24 +61,31 @@ class AudioEngine:
         self.is_playing = True
         
         # Open audio stream
-        self.stream = sd.OutputStream(
-            samplerate=self.sr,
-            channels=2,
-            dtype=np.float32,
-            blocksize=self.buffer_size,
-            callback=self._audio_callback,
-        )
-        self.stream.start()
-        
-        print("🔊 Audio engine started")
+        try:
+            self.stream = sd.OutputStream(
+                samplerate=self.sr,
+                channels=2,
+                dtype=np.float32,
+                blocksize=self.buffer_size,
+                callback=self._audio_callback,
+            )
+            self.stream.start()
+            print("🔊 Audio engine started")
+        except Exception as e:
+            print(f"❌ Failed to start audio stream: {e}")
+            self.is_playing = False
         
     def stop(self):
         """Stop audio engine"""
         self.is_playing = False
+        self.playback_session_id += 1 # Kill any active queue threads
         
         if self.stream:
-            self.stream.stop()
-            self.stream.close()
+            try:
+                self.stream.stop()
+                self.stream.close()
+            except:
+                pass
             self.stream = None
             
         print("🔇 Audio engine stopped")
@@ -87,7 +96,7 @@ class AudioEngine:
         NON-BLOCKING - runs in separate thread
         """
         if status:
-            print(f"⚠️ Audio status: {status}")
+            pass # Suppress minor underflow warnings in console
         
         if not self.is_playing or self.is_paused:
             outdata.fill(0)
@@ -129,6 +138,10 @@ class AudioEngine:
         Load audio file in background thread
         Returns immediately, audio loads async
         """
+        # Increment session so old queue threads die gracefully
+        self.playback_session_id += 1
+        current_session = self.playback_session_id
+        
         def _load():
             try:
                 y, sr = librosa.load(
@@ -145,25 +158,33 @@ class AudioEngine:
                 # Transpose to (samples, channels)
                 y = y.T
                 
+                # Abort if another song was loaded while we were decoding
+                if self.playback_session_id != current_session:
+                    return
+                    
                 self.current_audio = y
                 self.current_position = 0
                 
                 # Queue initial chunks
-                self._queue_chunks()
+                self._queue_chunks(current_session)
                 
             except Exception as e:
                 print(f"❌ Audio load error: {e}")
         
         threading.Thread(target=_load, daemon=True).start()
     
-    def _queue_chunks(self):
+    def _queue_chunks(self, session_id):
         """Queue audio chunks for playback"""
         if self.current_audio is None:
             return
         
         chunk_size = self.buffer_size
         
-        while self.current_position < len(self.current_audio):
+        # FIXED: Check is_playing AND session_id to prevent zombie threads!
+        while self.current_position < len(self.current_audio) and self.is_playing:
+            if self.playback_session_id != session_id:
+                break # A new song started, let this old thread die!
+                
             if self.play_queue.full():
                 time.sleep(0.01)
                 continue
@@ -175,7 +196,7 @@ class AudioEngine:
                 self.play_queue.put(chunk.astype(np.float32), timeout=0.1)
                 self.current_position = end
             except queue.Full:
-                break
+                continue
     
     def prebuffer_next(self, filepath, start_time=0.0):
         """
@@ -216,6 +237,10 @@ class AudioEngine:
         # Wait for pre-buffer if needed
         self.next_audio_ready.wait(timeout=5)
         
+        # FIXED: Advance session ID so old queue thread dies before we alter queue!
+        self.playback_session_id += 1
+        current_session = self.playback_session_id
+        
         # Get remaining current audio
         remaining = self.current_audio[self.current_position:]
         
@@ -227,7 +252,7 @@ class AudioEngine:
         
         crossfaded = remaining[:cf_len] * fade_out + self.next_audio_buffer[:cf_len] * fade_in
         
-        # Clear queue and add crossfade
+        # Clear queue and add crossfade safely
         while not self.play_queue.empty():
             try:
                 self.play_queue.get_nowait()
@@ -247,8 +272,8 @@ class AudioEngine:
         self.current_position = cf_len
         self.next_audio_buffer = None
         
-        # Continue queueing
-        threading.Thread(target=self._queue_chunks, daemon=True).start()
+        # Continue queueing with NEW session ID
+        threading.Thread(target=self._queue_chunks, args=(current_session,), daemon=True).start()
     
     def get_current_time(self):
         """Get current playback position in seconds"""
