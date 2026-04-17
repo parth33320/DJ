@@ -29,47 +29,64 @@ def test_random_transitions():
     # 3. Download and Analyze if needed
     for song_info in [cur_song_info, nxt_song_info]:
         song_id = song_info['id']
-        meta_cache = {}
+        
         # Try to load existing
         if os.path.exists(f'data/metadata/{song_id}.json'):
             with open(f'data/metadata/{song_id}.json', 'r') as f:
                 app.metadata_cache[song_id] = json.load(f)
         
         filepath = os.path.join(app.config['paths']['audio_cache'], f"{song_id}.mp3")
+        
         if not os.path.exists(filepath):
             print(f"Downloading {song_info['title']}...")
             filepath = app.downloader.download_song(song_info['url'], song_id)
+            
+            # ANTI-CRASH FIX: Catch bad downloads!
+            if filepath is None or not os.path.exists(filepath):
+                print(f"❌ Failed to download '{song_info['title']}'. Skipping this transition test.")
+                return
             
         if song_id not in app.metadata_cache:
             print(f"Analyzing {song_info['title']}...")
             analysis = app.analyzer.analyze_track(filepath, song_id)
             analysis['title'] = song_info['title']
-            # We skip phrase detection and heavy stem stuff to save time for just transition test
             app.metadata_cache[song_id] = analysis
 
     cur_analysis = app.metadata_cache[cur_song_info['id']]
     nxt_analysis = app.metadata_cache[nxt_song_info['id']]
     
-    # 4. Agent decides transition
-    compatibility = 50  # Mock
-    technique = app.transition_decider.decide(cur_analysis, nxt_analysis, compatibility)
-    params = app.transition_decider.get_params(cur_analysis, nxt_analysis, technique)
+    # 4. Agent decides transition using NEW Tree of Thoughts method
+    decide_result = app.transition_decider.decide_transition(
+        cur_song_info['title'], nxt_song_info['title'], cur_analysis, nxt_analysis
+    )
+    
+    if isinstance(decide_result, tuple):
+        technique, params = decide_result
+    else:
+        technique = decide_result
+        params = {"duration": 16}
     
     print(f"\n--- TESTING TRANSITION ---")
     print(f"From: {cur_song_info['title']} (BPM: {cur_analysis.get('bpm', 'Unknown')})")
     print(f"To:   {nxt_song_info['title']} (BPM: {nxt_analysis.get('bpm', 'Unknown')})")
     print(f"Chosen Technique: {technique}")
-    print("Playing audio... Please listen!")
+    print("Generating audio mix file... Please wait! (No headless hang)")
     
-    # 5. Play it
-    app.transition_engine.execute(
-        current_id=cur_song_info['id'],
-        next_id=nxt_song_info['id'],
+    # 5. GENERATE FILE (Fixes headless hang bug)
+    out_path = app.transition_engine.generate_transition_mix(
+        cur_id=cur_song_info['id'],
+        nxt_id=nxt_song_info['id'],
         technique=technique,
         params=params,
-        current_analysis=cur_analysis,
-        next_analysis=nxt_analysis
+        cur_ana=cur_analysis,
+        nxt_ana=nxt_analysis
     )
+    
+    if out_path:
+        print(f"✅ Mix generated successfully: {out_path}")
+    else:
+        print("❌ Failed to generate mix.")
+        return
     
     # 6. Ask for user rating
     print("\n" + "="*50)
