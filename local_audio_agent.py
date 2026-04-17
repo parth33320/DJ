@@ -17,7 +17,7 @@ class LocalAudioAgent:
     No LLM/Gemini credits needed.
     """
     def __init__(self):
-        with open('config.yaml', 'r') as f:
+        with open('config.yaml', 'r', encoding='utf-8') as f:
             self.config = yaml.safe_load(f)
         self.analyzer = AudioAnalyzer(self.config)
         self.cache_dir = self.config['paths']['audio_cache']

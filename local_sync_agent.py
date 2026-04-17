@@ -16,7 +16,7 @@ class LocalSyncAgent:
     Prevents repetitive downloads by keeping Drive and Local in sync.
     """
     def __init__(self):
-        with open('config.yaml', 'r') as f:
+        with open('config.yaml', 'r', encoding='utf-8') as f:
             self.config = yaml.safe_load(f)
         self.dm = DriveManager(self.config)
         self.local_meta = 'data/metadata'

@@ -18,7 +18,8 @@ AGENTS = [
     "local_ui_agent.py",
     "local_audio_agent.py",
     "local_sync_agent.py",
-    "local_git_agent.py"
+    "local_git_agent.py",
+    "local_logic_agent.py"
 ]
 
 def start_fleet():
