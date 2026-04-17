@@ -10,9 +10,49 @@ COOKIES = 'data/yt_cookies.txt'
 class TransitionRecipe(BaseModel):
     technique_name: str; suitable_for: str; steps: list; parameters: dict
 
+def load_json_safe(fp, default):
+    if os.path.exists(fp):
+        with open(fp, 'r', encoding='utf-8') as f: return json.load(f)
+    return default
+
+def save_json_safe(fp, data):
+    os.makedirs(os.path.dirname(fp), exist_ok=True)
+    with open(fp, 'w', encoding='utf-8') as f: json.dump(data, f, indent=2)
+
 class KnowledgeIngestionAgent:
     def __init__(self):
         self.llm = ChatOllama(model="deepseek-r1:8b", temperature=0.1).with_structured_output(TransitionRecipe)
+
+    # 🎯 NEW: SNIPER MODE FOR REMEDIATION
+    def run_targeted_search(self, query, technique):
+        print(f"\n🚨 [KNOWLEDGE AGENT] TARGETED REMEDIATION: Searching YouTube for '{query}'...")
+        ydl_opts = {'extract_flat': True, 'quiet': True, 'default_search': 'ytsearch3'}
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch3:{query}", download=False)
+            entries = info.get('entries', [])
+            
+            for entry in entries:
+                if not entry: continue
+                try:
+                    ts = YouTubeTranscriptApi.get_transcript(entry['id'], cookies=COOKIES if os.path.exists(COOKIES) else None)
+                    text = " ".join([t['text'] for t in ts])
+                    
+                    print(f"📚 Found transcript for {entry['title']}! Brain extracting recipe...")
+                    recipe = self.llm.invoke([HumanMessage(content=f"Extract step-by-step DJ transition recipe for {technique} from this text. Focus on audio engineering steps: {text[:4000]}")])
+                    
+                    recipe_dump = recipe.model_dump()
+                    
+                    # 1. Save specifically for immediate LLM injection
+                    save_json_safe(f"data/knowledge/{technique.lower()}_recipe.json", recipe_dump)
+                    
+                    # 2. Add to general knowledge base
+                    self._save(recipe_dump, entry['id'])
+                    
+                    print(f"✅ [KNOWLEDGE AGENT] Fix for {technique} learned and saved!\n")
+                    return # Stop after finding one good tutorial
+                except Exception as e:
+                    print(f"  ⚠️ Skip video (no transcript/error): {e}")
 
     def run_mass_harvest(self, playlists):
         processed = set(load_json_safe('data/logs/processed_videos.json', []))
@@ -34,37 +74,22 @@ class KnowledgeIngestionAgent:
 
     def _save(self, data, vid):
         kb = load_json_safe(KB_FILE, [])
-        
-        # 🛡️ ANTI-DUPLICATION LOGIC
-        # Check if we already have this video ID in the library
         existing_index = next((i for i, item in enumerate(kb) if item.get('vid') == vid), None)
-        
         data['vid'] = vid
         data['last_updated'] = time.time()
         
-        if existing_index is not None:
-            # If it exists, OVERWRITE it with the new, smarter logic
-            print(f"   🔄 Updating existing recipe in library for {vid}...")
-            kb[existing_index] = data
-        else:
-            # If it's new, APPEND it
-            print(f"   📥 Adding new recipe to library for {vid}...")
-            kb.append(data)
-            
+        if existing_index is not None: kb[existing_index] = data
+        else: kb.append(data)
         save_json_safe(KB_FILE, kb)
 
-def load_json_safe(fp, default):
-    if os.path.exists(fp):
-        with open(fp, 'r', encoding='utf-8') as f: return json.load(f)
-    return default
-
-def save_json_safe(fp, data):
-    os.makedirs(os.path.dirname(fp), exist_ok=True)
-    with open(fp, 'w', encoding='utf-8') as f: json.dump(data, f, indent=2)
-
 if __name__ == "__main__":
-    KnowledgeIngestionAgent().run_mass_harvest([
-        "https://www.youtube.com/playlist?list=PLm8kQbauoU-BmyP6EQJXtVLL0xHtfOb_2",
-        "https://www.youtube.com/playlist?list=PLm8kQbauoU-Am4wnh58AFiObXjW_43IlT"
-        # ... add rest of your links here
-    ])
+    agent = KnowledgeIngestionAgent()
+    # If called by test_transitions.py with args, use SNIPER MODE
+    if len(sys.argv) > 2:
+        agent.run_targeted_search(sys.argv[1], sys.argv[2])
+    else:
+        # Otherwise run mass harvest
+        agent.run_mass_harvest([
+            "https://www.youtube.com/playlist?list=PLm8kQbauoU-BmyP6EQJXtVLL0xHtfOb_2",
+            "https://www.youtube.com/playlist?list=PLm8kQbauoU-Am4wnh58AFiObXjW_43IlT"
+        ])
