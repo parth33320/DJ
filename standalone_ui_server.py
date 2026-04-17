@@ -39,6 +39,7 @@ MOBILE_UI_HTML = """
         body { font-family: 'Segoe UI', sans-serif; background: #0a0a0a; color: #e0e0e0; margin: 0; padding: 15px; display: flex; flex-direction: column; align-items: center; }
         .header { text-align: center; margin-bottom: 20px; width: 100%; max-width: 600px; }
         .header h1 { color: #00ffcc; margin: 0; font-size: 1.8rem; text-transform: uppercase; letter-spacing: 2px; }
+        .queue-badge { background: #333; padding: 5px 15px; border-radius: 20px; display: inline-block; margin-top: 10px; }
         .card { background: #1a1a1a; padding: 25px; border-radius: 16px; border: 1px solid #333; width: 100%; max-width: 600px; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
         .tech-badge { display: block; text-align: center; background: #00ffcc22; color: #00ffcc; padding: 8px; border-radius: 8px; font-weight: bold; margin-bottom: 20px; border: 1px solid #00ffcc; }
         .track-box { background: #111; padding: 15px; border-radius: 8px; border-left: 4px solid; margin-bottom: 10px; }
@@ -48,72 +49,164 @@ MOBILE_UI_HTML = """
         .label-out { color: #ff5252; }
         .label-in { color: #4caf50; }
         .track-title { font-size: 1.1rem; font-weight: bold; color: #fff; overflow: hidden; text-overflow: ellipsis; }
-        audio { width: 100%; margin: 25px 0; }
+        .player-container { margin: 25px 0; }
+        audio { width: 100%; }
+        .loading-state { text-align: center; padding: 20px; color: #666; }
+        .loading-state.active { color: #00ffcc; }
         textarea { width: 100%; box-sizing: border-box; background: #000; color: #fff; border: 1px solid #444; padding: 15px; border-radius: 8px; min-height: 100px; margin-bottom: 20px; font-size: 1rem; }
         .btn-row { display: flex; gap: 15px; }
-        button { flex: 1; padding: 18px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; color: white; text-transform: uppercase; }
+        button { flex: 1; padding: 18px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; color: white; text-transform: uppercase; transition: opacity 0.2s; }
+        button:disabled { opacity: 0.3; cursor: not-allowed; }
         .btn-fail { background: #d32f2f; }
         .btn-pass { background: #388e3c; }
         .empty { text-align: center; color: #666; margin-top: 50px; }
+        .status-bar { font-size: 0.8rem; text-align: center; margin-top: 10px; padding: 5px; border-radius: 4px; }
+        .status-loading { background: #333; color: #ffcc00; }
+        .status-ready { background: #1b5e20; color: #4caf50; }
+        .status-error { background: #b71c1c; color: #ff5252; }
     </style>
 </head>
 <body>
-    <div class="header"><h1>DJ God Mode</h1><div id="queue-count">Syncing...</div></div>
+    <div class="header">
+        <h1>DJ God Mode</h1>
+        <div class="queue-badge" id="queue-count">Syncing...</div>
+    </div>
     <div id="queue-container"></div>
+    
     <script>
-        let currentItem = null; // Store item globally so quotes don't break HTML
+        let currentItem = null;
+        let audioElement = null;
+        let isProcessing = false;
 
         async function fetchQueue() {
+            if (isProcessing) return; // Don't fetch while processing a rating
+            
             const res = await fetch('/api/queue');
             const data = await res.json();
             const container = document.getElementById('queue-container');
             const counter = document.getElementById('queue-count');
             
-            counter.innerText = `${data.length} Mixes Pending`;
+            counter.innerText = data.length + ' Mixes Pending';
+            
             if (data.length === 0) {
+                // Stop any playing audio
+                if (audioElement) {
+                    audioElement.pause();
+                    audioElement = null;
+                }
+                currentItem = null;
                 container.innerHTML = '<div class="empty"><h3>Queue Empty</h3><p>AI Brain is slicing audio...</p></div>';
                 return;
             }
             
-            currentItem = data[0];
+            const newItem = data[0];
             
-            // Render HTML without inline onclick strings
+            // Only rebuild UI if this is a DIFFERENT mix than what's currently showing
+            if (currentItem && currentItem.timestamp === newItem.timestamp) {
+                return; // Same item, no need to rebuild
+            }
+            
+            // Stop old audio before switching
+            if (audioElement) {
+                audioElement.pause();
+                audioElement.src = '';
+                audioElement = null;
+            }
+            
+            currentItem = newItem;
+            
+            // Build the UI
             container.innerHTML = `
                 <div class="card" id="focus-card">
-                    <div class="tech-badge">⚡ ${currentItem.technique}</div>
+                    <div class="tech-badge">* ${currentItem.technique}</div>
                     
                     <div class="track-box track-out">
                         <div class="label-sm label-out">OUTGOING TRACK (A) - Playing First</div>
-                        <div class="track-title">${currentItem.from_title}</div>
+                        <div class="track-title">${escapeHtml(currentItem.from_title)}</div>
                     </div>
                     
                     <div class="track-box track-in">
                         <div class="label-sm label-in">INCOMING TRACK (B) - Playing Second</div>
-                        <div class="track-title">${currentItem.to_title}</div>
+                        <div class="track-title">${escapeHtml(currentItem.to_title)}</div>
                     </div>
                     
-                    <audio controls autoplay src="/audio?path=${encodeURIComponent(currentItem.local_path)}"></audio>
+                    <div class="player-container">
+                        <audio id="main-audio" controls preload="auto"></audio>
+                        <div id="audio-status" class="status-bar status-loading">Loading audio...</div>
+                    </div>
                     
                     <textarea id="feedback-input" placeholder="TEACH THE AI: Why was this mix fire or trash?"></textarea>
                     
                     <div class="btn-row">
-                        <button id="btn-trash" class="btn-fail">👎 Trash</button>
-                        <button id="btn-fire" class="btn-pass">🔥 Fire</button>
+                        <button id="btn-trash" class="btn-fail" disabled>* Trash</button>
+                        <button id="btn-fire" class="btn-pass" disabled>* Fire</button>
                     </div>
                 </div>`;
-                
-            // Attach safe event listeners
-            document.getElementById('btn-trash').onclick = () => rateMix(2);
-            document.getElementById('btn-fire').onclick = () => rateMix(8);
+            
+            // Setup audio element with proper event handling
+            audioElement = document.getElementById('main-audio');
+            const statusBar = document.getElementById('audio-status');
+            const btnTrash = document.getElementById('btn-trash');
+            const btnFire = document.getElementById('btn-fire');
+            
+            // Audio loading events
+            audioElement.oncanplaythrough = function() {
+                statusBar.className = 'status-bar status-ready';
+                statusBar.innerText = 'Ready to play - Rate this mix!';
+                btnTrash.disabled = false;
+                btnFire.disabled = false;
+            };
+            
+            audioElement.onerror = function() {
+                statusBar.className = 'status-bar status-error';
+                statusBar.innerText = 'Error loading audio';
+            };
+            
+            audioElement.onplay = function() {
+                statusBar.className = 'status-bar status-ready';
+                statusBar.innerText = 'NOW PLAYING - Listen and rate!';
+            };
+            
+            // Set the source and load
+            audioElement.src = '/audio?path=' + encodeURIComponent(currentItem.local_path);
+            audioElement.load();
+            
+            // Attach button handlers
+            btnTrash.onclick = function() { rateMix(2); };
+            btnFire.onclick = function() { rateMix(8); };
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
         async function rateMix(ratingScore) {
-            if (!currentItem) return;
+            if (!currentItem || isProcessing) return;
+            
+            isProcessing = true;
+            
+            // Disable buttons and show processing state
+            const btnTrash = document.getElementById('btn-trash');
+            const btnFire = document.getElementById('btn-fire');
+            const statusBar = document.getElementById('audio-status');
+            const card = document.getElementById('focus-card');
+            
+            btnTrash.disabled = true;
+            btnFire.disabled = true;
+            statusBar.innerText = 'Submitting rating...';
+            statusBar.className = 'status-bar status-loading';
+            card.style.opacity = '0.5';
+            
+            // STOP the audio NOW
+            if (audioElement) {
+                audioElement.pause();
+                audioElement.src = '';
+            }
             
             const feedback = document.getElementById('feedback-input').value;
-            document.getElementById('focus-card').style.opacity = '0.3';
             
-            // Provide fallback 'unknown' for old queue items that didn't have IDs saved yet
             const payload = {
                 timestamp: currentItem.timestamp,
                 technique: currentItem.technique,
@@ -125,17 +218,34 @@ MOBILE_UI_HTML = """
                 to_id: currentItem.to_id || "unknown"
             };
 
-            await fetch('/api/rate', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
-            });
+            try {
+                await fetch('/api/rate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+            } catch (e) {
+                console.error('Rating failed:', e);
+            }
             
-            fetchQueue();
+            // Clear current item to force reload
+            currentItem = null;
+            audioElement = null;
+            isProcessing = false;
+            
+            // Small delay to let server update, then fetch new queue
+            setTimeout(fetchQueue, 500);
         }
 
-        setInterval(() => { if (!document.getElementById('focus-card')) fetchQueue(); }, 5000);
+        // Initial fetch
         fetchQueue();
+        
+        // Poll for new items only when not playing/processing
+        setInterval(function() {
+            if (!isProcessing && (!audioElement || audioElement.paused)) {
+                fetchQueue();
+            }
+        }, 5000);
     </script>
 </body>
 </html>
@@ -154,7 +264,11 @@ def serve_audio():
 @app.route('/api/queue')
 def get_queue():
     links = load_json(LINKS_FILE, [])
-    return jsonify([l for l in links if l.get('rating') is None])
+    # Sort by timestamp so newest is first, then filter unrated
+    unrated = [l for l in links if l.get('rating') is None]
+    # Sort by timestamp ASCENDING so oldest unrated is first (FIFO)
+    unrated.sort(key=lambda x: x.get('timestamp', 0))
+    return jsonify(unrated)
 
 @app.route('/api/rate', methods=['POST'])
 def rate_transition():
@@ -184,7 +298,6 @@ def rate_transition():
     if rating < 5:
         state = load_json(STATE_FILE, {})
         
-        # Don't try to study if we don't have IDs
         if data.get('from_id') != "unknown" and data.get('to_id') != "unknown":
             state.update({
                 'mode': 'REMEDIATION',
@@ -194,12 +307,12 @@ def rate_transition():
                 'homework_query': f"How to DJ {tech} transition tutorial step by step"
             })
             save_json(STATE_FILE, state)
-            print(f"🛑 FAIL DETECTED: AI goes to study {tech} for {data.get('track_a')} -> {data.get('track_b')}!")
+            print(f"REMEDIATION TRIGGERED: AI will study {tech}")
         else:
-            print("⚠️ FAILED ON OLD MIX: Could not study because old mix lacks track IDs.")
+            print("FAILED ON OLD MIX: No track IDs available for remediation")
 
     return jsonify({"status": "success"})
 
 if __name__ == '__main__':
-    print("🌐 Flask UI starting on port 8080...")
+    print("Flask UI starting on port 8080...")
     app.run(host='0.0.0.0', port=8080, threaded=True, use_reloader=False)
