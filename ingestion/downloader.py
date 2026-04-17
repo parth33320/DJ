@@ -1,6 +1,7 @@
 import yt_dlp
 import os
 import json
+import signal
 from tqdm import tqdm
 
 class PlaylistDownloader:
@@ -10,18 +11,23 @@ class PlaylistDownloader:
         self.metadata_dir = config['paths']['metadata']
         self.playlist_cache_file = "data/playlist_cache.json"
         os.makedirs(self.cache_dir, exist_ok=True)
+        
+        # Ensure cookies file exists to prevent crash
+        self.cookie_path = self.config.get('youtube', {}).get('cookie_file', 'data/yt_cookies.txt')
+        if not os.path.exists(self.cookie_path):
+            os.makedirs(os.path.dirname(self.cookie_path) or '.', exist_ok=True)
+            open(self.cookie_path, 'a').close()
 
     def get_playlist_metadata(self, playlist_url):
         ydl_opts = {
             'quiet': True,
             'extract_flat': True,
             'skip_download': True,
+            'cookiefile': self.cookie_path,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            }
         }
-        
-        # FIXED: Pass cookies to avoid YouTube blocking your IP!
-        cookie_path = self.config.get('youtube', {}).get('cookie_file', '')
-        if cookie_path and os.path.exists(cookie_path):
-            ydl_opts['cookiefile'] = cookie_path
             
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -67,9 +73,18 @@ class PlaylistDownloader:
         if os.path.exists(output_path):
             return output_path
 
+        # ANTI-BOT ARMOR ADDED HERE
         ydl_opts = {
             'format': 'bestaudio/best',
             'outtmpl': os.path.join(self.cache_dir, f"{song_id}.%(ext)s"),
+            'cookiefile': self.cookie_path,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            },
+            # Add jitter to bypass anti-bot rate limits
+            'sleep_requests': 2,
+            'min_sleep_interval': 5,
+            'max_sleep_interval': 15,
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -80,13 +95,6 @@ class PlaylistDownloader:
             'socket_timeout': 30,
             'retries': 3,
         }
-        
-        # FIXED: Pass cookies here too! Very important!
-        cookie_path = self.config.get('youtube', {}).get('cookie_file', '')
-        if cookie_path and os.path.exists(cookie_path):
-            ydl_opts['cookiefile'] = cookie_path
-        
-        import signal
         
         def timeout_handler(signum, frame):
             raise TimeoutError(f"Download timed out after {timeout}s")
@@ -102,7 +110,12 @@ class PlaylistDownloader:
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
-            return output_path
+            
+            # Verify file actually wrote to disk
+            if os.path.exists(output_path):
+                return output_path
+            else:
+                return None
         except Exception as e:
             # FIXED: Catch crash, print error, return None instead of breaking app
             print(f"❌ Download error for {song_id}: {str(e)[:100]}")
