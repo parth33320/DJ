@@ -45,3 +45,8 @@ googletrans==4.0.0rc1
 matplotlib
 pillow
 opencv-python
+
+# Add these lines
+langchain-ollama>=0.1.0
+langgraph>=0.1.0
+pydantic>=2.0.0
