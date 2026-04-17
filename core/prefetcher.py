@@ -275,3 +275,50 @@ class Prefetcher:
             'status_counts': status_counts,
             'lookahead': self.lookahead,
         }
+
+    def _analyze_loop(self):
+        """Analysis worker loop - FIXED"""
+        while self.is_running:
+            try:
+                jobs_processed = 0
+                
+                # Find jobs needing analysis
+                for song_id, job in list(self.jobs.items()):
+                    if job.status != 'analyzing':
+                        continue
+                    
+                    if not job.filepath:
+                        continue
+                    
+                    jobs_processed += 1
+                    
+                    try:
+                        # Check cache first
+                        cached = self.cache.get('metadata', song_id)
+                        if cached:
+                            import json
+                            with open(cached, 'r') as f:
+                                job.analysis = json.load(f)
+                            job.status = 'ready'
+                            continue
+                        
+                        # Run analysis
+                        analysis = self.analyzer.analyze_track(
+                            job.filepath, song_id
+                        )
+                        job.analysis = analysis
+                        job.status = 'ready'
+                        
+                        print(f"✅ Prefetched: {song_id}")
+                        
+                    except Exception as e:
+                        job.status = 'failed'
+                        job.error = str(e)
+                        print(f"❌ Prefetch analysis failed for {song_id}: {e}")
+                
+                # FIXED: Sleep even if no jobs to prevent busy spinning
+                time.sleep(1 if jobs_processed == 0 else 0.1)
+                
+            except Exception as e:
+                print(f"❌ Prefetch analyze error: {e}")
+                time.sleep(1)

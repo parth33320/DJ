@@ -1562,3 +1562,49 @@ class MasterTransitionEngine:
         # Placeholder for LocalLogicAgent
         print(f"   💬 THEME: Narrative bridge identified across lyrics.")
         return self.beatmatch_crossfade(cur_id, nxt_id, params, cur_ana, nxt_ana)
+
+    def _calculate_key_shift(self, camelot_a, camelot_b):
+        """
+        Calculate semitone shift needed to match keys
+        Returns 0 if already compatible or can't determine
+        """
+        if not camelot_a or not camelot_b:
+            return 0
+        
+        if camelot_a == camelot_b:
+            return 0
+        
+        # Camelot wheel mapping to semitones
+        # A = minor, B = major
+        # 1-12 = keys
+        try:
+            num_a = int(camelot_a[:-1])
+            mode_a = camelot_a[-1]
+            num_b = int(camelot_b[:-1])
+            mode_b = camelot_b[-1]
+            
+            # Same mode - calculate semitone difference
+            if mode_a == mode_b:
+                # Each step on wheel = 7 semitones (perfect 5th)
+                # But we want minimal shift
+                diff = (num_b - num_a) % 12
+                if diff > 6:
+                    diff = diff - 12
+                
+                semitones = (diff * 7) % 12
+                if semitones > 6:
+                    semitones = semitones - 12
+                
+                return semitones
+            
+            # Different modes - relative major/minor
+            # A to B = +3 semitones (minor to relative major)
+            if mode_a == 'A' and mode_b == 'B':
+                return 3
+            elif mode_a == 'B' and mode_b == 'A':
+                return -3
+            
+        except (ValueError, IndexError):
+            pass
+        
+        return 0

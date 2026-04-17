@@ -36,8 +36,12 @@ class AudioAnalyzer:
         y, sr = librosa.load(filepath, sr=22050, duration=180.0)
 
         # BPM & beats
-        tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
-        tempo = float(np.atleast_1d(tempo)[0]) # Ensure scalar
+        tempo_result, beats = librosa.beat.beat_track(y=y, sr=sr)
+      # Ensure tempo is a scalar float
+        if hasattr(tempo_result, '__len__'):
+            tempo = float(tempo_result[0]) if len(tempo_result) > 0 else 120.0
+        else:
+            tempo = float(tempo_result)
         beat_times = librosa.frames_to_time(beats, sr=sr)
 
         # Key detection
