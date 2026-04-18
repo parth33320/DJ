@@ -46,6 +46,16 @@ class TransitionTrainer:
             'wordplay': 9,
             'tone_play': 10,
             'mashup_short': 11,
+            'acapella_layer': 12,
+            'drum_swap': 13,
+            'bass_swap': 14,
+            'stutter_glitch': 15,
+            'half_time_transition': 16,
+            'wordplay_mashup': 17,
+            'phrasal_interlace': 18,
+            'semantic_bridge': 19,
+            'mashup_extended': 20,
+            'double_time_transition': 21,
         }
 
     def load_training_data(self):

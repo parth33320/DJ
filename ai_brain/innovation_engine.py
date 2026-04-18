@@ -48,6 +48,13 @@ class InnovationEngine:
             'filter_sweep_duration': [4, 8, 12, 16],
             'reverb_room_size': [0.3, 0.5, 0.7, 0.9],
             'pitch_shift_semitones': [-5, -3, -2, 2, 3, 5, 7, 12],
+            'interlace_slice_divisions': [4, 8, 16, 32, 64],
+            'glitch_density': [4, 8, 16, 32],
+            'half_time_ramp_bars': [4, 8, 16],
+            'word_repeats': [2, 3, 4, 6, 8],
+            'layer_bars': [8, 16, 32],
+            'pitch_interpolation_steps': [4, 8, 12, 24],
+            'spectral_freeze_duration_ms': [250, 500, 1000, 2000],
         }
     
     def _load_innovations(self) -> Dict:

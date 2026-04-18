@@ -228,7 +228,11 @@ class RLFeedback:
         genre_b = analysis_b.get('genre_hint', 'Pop/Other')
         same_genre = 'same' if genre_a == genre_b else 'diff'
 
-        state = f"{genre_a}|{genre_b}|{bpm_bucket}|{energy_bucket}|{key_compat}|{same_genre}"
+        # Expanded features for advanced techniques
+        has_vocals_a = 'has_vocals' in analysis_a and analysis_a['has_vocals']
+        spectral_complexity = 'high' if analysis_a.get('spectral_centroid', 2000) > 3500 else 'low'
+
+        state = f"{genre_a}|{genre_b}|{bpm_bucket}|{energy_bucket}|{key_compat}|{same_genre}|{'vocals' if has_vocals_a else 'no_vocals'}|{spectral_complexity}"
         return state
 
     def _update_q_table(self, transition_id, reward):

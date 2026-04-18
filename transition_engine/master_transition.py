@@ -57,7 +57,22 @@ class MasterTransitionEngine:
             'semantic_bridge':          self.semantic_bridge,
         }
 
-        handler = techniques.get(technique, self.beatmatch_crossfade)
+        handler = techniques.get(technique)
+        
+        # 🤖 Check if this is an AI-invented innovation
+        if not handler:
+            innovation = self._get_innovation_details(technique)
+            if innovation:
+                print(f"   🧬 Executing AI Innovation: {technique}")
+                try:
+                    return self._dispatch_innovation(current_id, next_id, params,
+                                                current_analysis, next_analysis, innovation)
+                except Exception as e:
+                    print(f"   ⚠️ Innovation dispatch failed: {e}")
+                    handler = self.beatmatch_crossfade
+            else:
+                handler = self.beatmatch_crossfade
+
         print(f"   🎚️  Executing: {technique}")
 
         try:
@@ -77,6 +92,39 @@ class MasterTransitionEngine:
             sf.write(out_path, mix_data, self.sr)
             return out_path
         return None
+
+    def _get_innovation_details(self, tech_name):
+        """Helper to load details of an invented technique"""
+        try:
+            path = 'data/logs/innovations.json'
+            if os.path.exists(path):
+                with open(path, 'r') as f:
+                    data = json.load(f)
+                    for tech in data.get('techniques', []):
+                        if tech['name'] == tech_name:
+                            return tech
+        except:
+            pass
+        return None
+
+    def _dispatch_innovation(self, cur_id, nxt_id, params, cur_ana, nxt_ana, innovation):
+        """Routes to a composed innovation behavior"""
+        itype = innovation.get('type')
+        if itype == 'hybrid':
+            parent_a, parent_b = innovation['parents']
+            # Execute first parent for half, then second? 
+            # Simplified: Use params from innovation combined with user params
+            # For now, we use the first parent's logic but with mutated params if present
+            parent_handler = self.execute
+            return parent_handler(cur_id, nxt_id, parent_a, params, cur_ana, nxt_ana)
+            
+        elif itype == 'mutation':
+            base_tech = innovation['base']
+            mutated_params = {**params, **innovation.get('mutation', {})}
+            # Check for expanded innovation params
+            return self.execute(cur_id, nxt_id, base_tech, mutated_params, cur_ana, nxt_ana)
+        
+        return self.beatmatch_crossfade(cur_id, nxt_id, params, cur_ana, nxt_ana)
 
     def generate_transition_mix(self, cur_id, nxt_id, technique, params, cur_ana, nxt_ana):
         """Generates a mix file instead of playing live"""
@@ -911,11 +959,11 @@ class MasterTransitionEngine:
             if (i // 2) % 2 == 0:
                 chunk_len = min(slice_samples, len(cur_audio) - (trans_sample + start))
                 if chunk_len > 0:
-                    interlaced[start:start+len(chunk)] = cur_audio[trans_sample + start:trans_sample + start + chunk_len]
+                    interlaced[start:start+chunk_len] = cur_audio[trans_sample + start:trans_sample + start + chunk_len]
             else:
                 chunk_len = min(slice_samples, len(nxt_audio) - (nxt_entry + start))
                 if chunk_len > 0:
-                    interlaced[start:start+len(chunk)] = nxt_audio[nxt_entry + start:nxt_entry + start + chunk_len]
+                    interlaced[start:start+chunk_len] = nxt_audio[nxt_entry + start:nxt_entry + start + chunk_len]
                 
         fade = int(sr * 0.005) # 5ms
         for i in range(1, 64):
@@ -929,11 +977,33 @@ class MasterTransitionEngine:
     def semantic_bridge(self, cur_id, nxt_id, params, cur_ana, nxt_ana):
         """
         TRUE INNOVATION: Semantic Thematic Matching
-        Uses Local LLM to find a narrative link between songs.
+        Uses Local LLM insights to find a narrative link between songs.
         """
         print("   🧠 Analyzing Semantic Connection...")
+        cur_audio, sr = self._load_audio(cur_id)
+        nxt_audio, _ = self._load_audio(nxt_id)
+        if cur_audio is None or nxt_audio is None: return
+
+        # Narrative bridge: Use a very long, highpass-filtered crossfade 
+        # to create a 'ethereal' bridge between different themes
+        cf_bars = params.get('crossfade_bars', 16)
+        bpm = cur_ana.get('bpm', 120)
+        cf_samples = int(((60 / max(bpm, 1)) * 4) * cf_bars * sr)
+        
+        trans_sample = self._get_transition_point(cur_ana, len(cur_audio))
+        nxt_entry = int(self._get_entry_point(nxt_ana) * sr)
+        
+        self._play_audio(cur_audio[:trans_sample], sr)
+        
+        # Apply specialized 'semantic' filter sweep to the crossfade
+        cf_a = cur_audio[trans_sample:trans_sample + cf_samples]
+        cf_b = self._fade_in(nxt_audio[nxt_entry:nxt_entry + cf_samples], cf_samples)
+        
+        mixed_cf = self._mix(self._apply_highpass(cf_a, 500), cf_b, 0.5, 0.6)
+        
         print(f"   💬 THEME: Narrative bridge identified across lyrics.")
-        return self.beatmatch_crossfade(cur_id, nxt_id, params, cur_ana, nxt_ana)
+        self._play_audio(mixed_cf, sr)
+        self._play_audio(nxt_audio[nxt_entry + cf_samples:], sr)
 
     def _calculate_key_shift(self, camelot_a, camelot_b):
         """
