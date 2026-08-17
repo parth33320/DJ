@@ -121,12 +121,12 @@ MOBILE_UI_HTML = """
                     <div class="tech-badge">* ${currentItem.technique}</div>
                     
                     <div class="track-box track-out">
-                        <div class="label-sm label-out">OUTGOING TRACK (A) - Playing First</div>
+                        <div class="label-sm label-out">▶ CURRENTLY PLAYING (TRACK A)</div>
                         <div class="track-title">${escapeHtml(currentItem.from_title)}</div>
                     </div>
                     
                     <div class="track-box track-in">
-                        <div class="label-sm label-in">INCOMING TRACK (B) - Playing Second</div>
+                        <div class="label-sm label-in">⏭ UP NEXT / TRANSITIONING TO (TRACK B)</div>
                         <div class="track-title">${escapeHtml(currentItem.to_title)}</div>
                     </div>
                     

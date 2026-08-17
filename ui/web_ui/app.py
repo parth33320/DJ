@@ -33,6 +33,12 @@ def get_status():
             dj_app_ref.current_song, {}
         )
 
+    next_song = None
+    if getattr(dj_app_ref, 'next_song', None):
+        next_song = dj_app_ref.metadata_cache.get(
+            dj_app_ref.next_song, {}
+        )
+
     return jsonify({
         'is_playing': dj_app_ref.is_playing,
         'mode': dj_app_ref.mode,
@@ -41,6 +47,12 @@ def get_status():
             'bpm': current.get('bpm', 0) if current else 0,
             'key': current.get('camelot', 'N/A') if current else 'N/A',
             'genre': current.get('genre_hint', '') if current else '',
+        },
+        'next_song': {
+            'title': next_song.get('title', 'None') if next_song else 'None',
+            'bpm': next_song.get('bpm', 0) if next_song else 0,
+            'key': next_song.get('camelot', 'N/A') if next_song else 'N/A',
+            'genre': next_song.get('genre_hint', '') if next_song else '',
         },
         'total_songs': len(dj_app_ref.metadata_cache),
         'playlist_count': len(dj_app_ref.playlist)
@@ -117,18 +129,25 @@ def handle_update_request():
         current = dj_app_ref.metadata_cache.get(
             dj_app_ref.current_song, {}
         )
+        next_song = None
+        if getattr(dj_app_ref, 'next_song', None):
+            next_song = dj_app_ref.metadata_cache.get(
+                dj_app_ref.next_song, {}
+            )
         emit('state_update', {
             'title': current.get('title', 'Unknown'),
+            'next_title': next_song.get('title', 'None') if next_song else 'None',
             'bpm': current.get('bpm', 0),
             'key': current.get('camelot', 'N/A'),
             'genre': current.get('genre_hint', ''),
             'mode': dj_app_ref.mode
         })
 
-def broadcast_now_playing(title, bpm, key, genre, technique):
+def broadcast_now_playing(title, bpm, key, genre, technique, next_title='None'):
     """Broadcast to all connected web clients"""
     socketio.emit('now_playing', {
         'title': title,
+        'next_title': next_title,
         'bpm': bpm,
         'key': key,
         'genre': genre,
