@@ -71,10 +71,42 @@
             border-color: #00c8ff44;
         }
 
+        .track-section {
+            margin-bottom: 15px;
+            padding: 12px;
+            border-radius: 6px;
+            background: #15152a;
+        }
+
+        .track-section.current-track {
+            border-left: 4px solid #00c8ff;
+        }
+
+        .track-section.next-track {
+            border-left: 4px solid #50fa7b;
+        }
+
+        .track-label {
+            font-size: 0.75rem;
+            font-weight: bold;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+        }
+
+        .track-label.current { color: #00c8ff; }
+        .track-label.next { color: #50fa7b; }
+
         .song-title {
-            font-size: 1.8rem;
-            color: #00c8ff;
-            margin-bottom: 10px;
+            font-size: 1.6rem;
+            color: #ffffff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .next-song-title {
+            font-size: 1.3rem;
+            color: #e0e0e0;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -255,8 +287,18 @@
 
     <!-- Now Playing -->
     <div class="card now-playing">
-        <h2>Now Playing</h2>
-        <div class="song-title" id="song-title">Loading...</div>
+        <h2>Audio Player / Current Session</h2>
+
+        <div class="track-section current-track">
+            <div class="track-label current">▶ CURRENTLY PLAYING</div>
+            <div class="song-title" id="song-title">Loading...</div>
+        </div>
+
+        <div class="track-section next-track">
+            <div class="track-label next">⏭ UP NEXT / TRANSITIONING TO</div>
+            <div class="next-song-title" id="next-song-title">---</div>
+        </div>
+
         <div class="song-meta">
             <div class="meta-item">
                 <span class="meta-label">BPM</span>
@@ -361,6 +403,8 @@
     socket.on('now_playing', (data) => {
         document.getElementById('song-title').textContent =
             data.title || 'Unknown';
+        document.getElementById('next-song-title').textContent =
+            data.next_title || '---';
         document.getElementById('bpm').textContent =
             data.bpm ? data.bpm.toFixed(1) : '---';
         document.getElementById('key').textContent = data.key || '---';
@@ -372,6 +416,8 @@
     socket.on('state_update', (data) => {
         document.getElementById('song-title').textContent =
             data.title || 'Unknown';
+        document.getElementById('next-song-title').textContent =
+            data.next_title || '---';
         document.getElementById('bpm').textContent =
             data.bpm ? parseFloat(data.bpm).toFixed(1) : '---';
         document.getElementById('key').textContent = data.key || '---';
@@ -413,6 +459,12 @@
                     d.total_songs || 0;
                 document.getElementById('playlist-count').textContent =
                     d.playlist_count || 0;
+                if (d.current_song && d.current_song.title) {
+                    document.getElementById('song-title').textContent = d.current_song.title;
+                }
+                if (d.next_song && d.next_song.title) {
+                    document.getElementById('next-song-title').textContent = d.next_song.title;
+                }
             });
     }
 
