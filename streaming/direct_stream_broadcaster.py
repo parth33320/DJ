@@ -18,10 +18,10 @@ class DirectStreamBroadcaster:
         self.config = config
         streaming_cfg = config.get('streaming', {})
         self.rtmp_url = rtmp_url or streaming_cfg.get('rtmp_url', 'rtmp://a.rtmp.youtube.com/live2/x/stream-key')
-        self.audio_source = os.path.abspath("output/continuous_stream_master.mp3")
+        self.audio_source = os.path.abspath("output/current_pair.mp3")
 
         # Fallback background image
-        self.bg_image = os.path.abspath("docs/background.jpg")
+        self.bg_image = os.path.abspath("assets/bg.jpg")
         if not os.path.exists(self.bg_image):
             os.makedirs(os.path.dirname(self.bg_image), exist_ok=True)
             try:
@@ -99,6 +99,9 @@ class DirectStreamBroadcaster:
         except Exception as e:
             logging.error(f"❌ Failed to start FFmpeg broadcaster: {e}")
             return False
+
+    def check_health(self) -> bool:
+        return self.check_stream_health()
 
     def check_stream_health(self) -> bool:
         """Returns True if the FFmpeg streaming process is active."""
