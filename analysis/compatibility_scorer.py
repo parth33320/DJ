@@ -74,13 +74,36 @@ class CompatibilityScorer:
             score += int(bias * 20)
             reasons.append(f"✅ Matching language ({lang_a}) bonus")
 
+        # 5. Comment Anchor Timestamp Hooks
+        anchors_a = analysis_a.get('anchor_points', [])
+        anchors_b = analysis_b.get('anchor_points', [])
+        if anchors_a or anchors_b:
+            score += 5
+            reasons.append("✅ Comment-anchor timestamps identified for precision hook slicing")
+
         # Recommend transition technique
         transition = self._recommend_transition(analysis_a, analysis_b, score, min_bpm_diff)
 
         return {
             'score': min(100, max(0, score)),
             'reasons': reasons,
-            'recommended_transition': transition
+            'recommended_transition': transition,
+            'anchor_slices': self.get_anchor_slice_times(analysis_a, analysis_b)
+        }
+
+    def get_anchor_slice_times(self, analysis_a, analysis_b):
+        """
+        Extracts recommended entry/exit hook timestamp anchors from comment anchors.
+        """
+        anchors_a = analysis_a.get('anchor_points', [])
+        anchors_b = analysis_b.get('anchor_points', [])
+
+        exit_a = anchors_a[0]['time'] if anchors_a else None
+        entry_b = anchors_b[0]['time'] if anchors_b else None
+
+        return {
+            'track_a_exit_sec': exit_a,
+            'track_b_entry_sec': entry_b
         }
 
     def _recommend_transition(self, a1, a2, score, bpm_diff):
