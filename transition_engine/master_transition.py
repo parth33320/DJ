@@ -1,5 +1,8 @@
 import numpy as np
-import sounddevice as sd
+try:
+    import sounddevice as sd
+except Exception:
+    sd = None
 import soundfile as sf
 import librosa
 import os
